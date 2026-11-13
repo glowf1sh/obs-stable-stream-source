@@ -32,8 +32,7 @@ OutputBaseFilename=obs-stable-stream-source-{#AppVersion}-windows-x64-installer
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-CloseApplications=yes
-RestartApplications=no
+CloseApplications=no
 UninstallDisplayName=Stable Stream Source for OBS Studio
 UninstallFilesDir={app}\obs-plugins\64bit\obs-stable-stream-source-uninstall
 WizardStyle=modern
@@ -48,10 +47,12 @@ Name: "de"; MessagesFile: "compiler:Languages\German.isl"; InfoBeforeFile: "info
 en.NoObs=OBS Studio was not found in the selected folder. Please choose the OBS Studio installation folder (it contains bin\64bit\obs64.exe).
 de.NoObs=OBS Studio wurde im gewählten Ordner nicht gefunden. Bitte den Installationsordner von OBS Studio wählen (er enthält bin\64bit\obs64.exe).
 en.AlreadyInstalled=Stable Stream Source %1 is already installed.%n%nYes: update to version %2%nNo: uninstall%nCancel: exit
+en.ObsRunning=OBS Studio is still running. Please close OBS Studio completely and click Retry.
+de.ObsRunning=OBS Studio läuft noch. Bitte OBS Studio vollständig beenden und auf „Wiederholen“ klicken.
 de.AlreadyInstalled=Stable Stream Source %1 ist bereits installiert.%n%nJa: auf Version %2 aktualisieren%nNein: deinstallieren%nAbbrechen: beenden
 
 [Files]
-Source: "{#SourceDir}\obs-stable-stream-source\bin\64bit\obs-stable-stream-source.dll"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion
+Source: "{#SourceDir}\obs-stable-stream-source\bin\64bit\obs-stable-stream-source.dll"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion restartreplace uninsrestartdelete
 Source: "{#SourceDir}\obs-stable-stream-source\data\*"; DestDir: "{app}\data\obs-plugins\obs-stable-stream-source"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [UninstallDelete]
@@ -60,6 +61,48 @@ Type: dirifempty; Name: "{app}\data\obs-plugins\obs-stable-stream-source"
 [Code]
 const
   UninstKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F3A2C1E-8B4D-4E7A-9C25-5D1F0B8E3A47}_is1';
+
+function ProcessRunning(Name: String): Boolean;
+var
+  Wmi, Found: Variant;
+begin
+  Result := False;
+  try
+    Wmi := CreateOleObject('WbemScripting.SWbemLocator').ConnectServer('.', 'root\CIMV2');
+    Found := Wmi.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE Name = ''' + Name + '''');
+    Result := Found.Count > 0;
+  except
+  end;
+end;
+
+function ObsRunning(): Boolean;
+begin
+  Result := ProcessRunning('obs64.exe') or ProcessRunning('obs-browser-page.exe');
+end;
+
+{ Waits until OBS Studio is closed. Returns False if the user cancels. }
+function WaitForObs(): Boolean;
+begin
+  Result := True;
+  while ObsRunning() do
+    if SuppressibleMsgBox(CustomMessage('ObsRunning'), mbError, MB_RETRYCANCEL, IDCANCEL) = IDCANCEL then
+    begin
+      Result := False;
+      exit;
+    end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if not WaitForObs() then
+    Result := CustomMessage('ObsRunning');
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := WaitForObs();
+end;
 
 function ObsDir(Param: String): String;
 begin
