@@ -63,6 +63,19 @@ Download the package for your platform from the [Releases](https://github.com/gl
 
 The project is based on the official [OBS plugin template](https://github.com/obsproject/obs-plugintemplate). Builds for Windows, macOS and Linux run automatically on GitHub Actions. For local builds see the template documentation.
 
+## Made by Glowfish
+
+Stable Stream Source is developed and maintained by **[Glowfish GmbH & Co. KG](https://www.glowfish.de/en)**, a hosting provider from Munich, Germany. It grew out of our own IRL streaming infrastructure, where we run relays for live streaming over mobile networks.
+
+At Glowfish you can rent:
+
+- **[IRL streaming relays](https://www.glowfish.de/en/irl-streaming)**: SRT and SRTLA (bonding of several mobile connections), automatic scene switching for OBS and bitrate overlays, hosted by us or self-hosted on your own hardware
+- **[Game servers](https://www.glowfish.de/en/spieleserver)**: Minecraft, Valheim, Factorio, Terraria, Project Zomboid and more
+- **[vServers](https://www.glowfish.de/en/vserver)**: containers and virtual machines
+- **[Web hosting](https://www.glowfish.de/en/webhosting)**
+
+More at **[glowfish.de](https://www.glowfish.de/en)**.
+
 ## License
 
 GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. KG.
@@ -78,3 +91,12 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 **Die Lösung:** Diese Quelle dekodiert den Stream selbst und ordnet Bild und Ton über **eine gemeinsame Zuordnung** der Computeruhr zu. Springen die Zeitstempel, wird diese Zuordnung für beide gleichzeitig neu gesetzt. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Kein Neustart der Quelle, kein schwarzes Bild, automatische Wiederverbindung.
 
 **Einrichtung:** Plugin installieren, in der Szene eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
+
+**Von Glowfish:** Stable Stream Source wird von der **[Glowfish GmbH & Co. KG](https://www.glowfish.de)** aus München entwickelt. Bei uns kannst du mieten:
+
+- **[IRL-Streaming-Relays](https://www.glowfish.de/irl-streaming)** mit SRT und SRTLA (Bündelung mehrerer Mobilfunkverbindungen), automatischer Szenenumschaltung für OBS und Bitrate-Overlays, bei uns gehostet oder selbst betrieben auf eigener Hardware
+- **[Spieleserver](https://www.glowfish.de/spieleserver)** für Minecraft, Valheim, Factorio, Terraria, Project Zomboid und mehr
+- **[vServer](https://www.glowfish.de/vserver)** als Container oder virtuelle Maschine
+- **[Webhosting](https://www.glowfish.de/webhosting)**
+
+Mehr auf **[glowfish.de](https://www.glowfish.de)**.
