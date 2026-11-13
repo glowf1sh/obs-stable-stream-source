@@ -68,6 +68,19 @@ Glowfish also offers:
 
 More at **[glowfish.de](https://www.glowfish.de/en)**.
 
+## Code signing policy
+
+Free code signing for the Windows installer is provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [glowf1sh](https://github.com/glowf1sh) (Glowfish GmbH & Co. KG)
+- Approvers: [glowf1sh](https://github.com/glowf1sh) (Glowfish GmbH & Co. KG)
+
+Only builds made by GitHub Actions from this repository are signed.
+
+## Privacy
+
+This plugin does not transfer any information to other networked systems unless specifically requested by the user. It only connects to the stream address entered in the source settings.
+
 ## License
 
 GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. KG.
