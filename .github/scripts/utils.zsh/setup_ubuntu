@@ -44,6 +44,8 @@ if (( ! (${skips[(Ie)all]} + ${skips[(Ie)deps]}) )) {
     libsimde-dev \
     libavformat-dev \
     libavcodec-dev \
+    libavdevice-dev \
+    libswscale-dev \
     libavutil-dev \
     pkg-config \
     obs-studio
