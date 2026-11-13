@@ -53,7 +53,9 @@ If your sender itself delivers audio and video with an offset (some cameras do),
 
 **macOS and Linux:** download the package for your platform from the [Releases](https://github.com/glowf1sh/obs-stable-stream-source/releases) page and install it like any other OBS plugin.
 
-Then add a source of type **Stable Stream Source** to your scene. The version is shown at the bottom of the source properties.
+Then add a source of type **Stable Stream Source** to your scene (in the German interface: *Stabile Stream-Quelle*). The version is shown at the bottom of the source properties.
+
+<img src="docs/add-source.png" alt="Adding a Stable Stream Source in OBS Studio" width="300">
 
 ## Building
 
@@ -101,7 +103,7 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 
 Liefert schon der Sender Bild und Ton versetzt (manche Kameras tun das), steckt der Versatz im Stream selbst. Den gleicht man einmalig mit dem Audio-Versatz in den erweiterten Audioeigenschaften von OBS aus.
 
-**Einrichtung:** Unter Windows den Installer von der [Releases-Seite](https://github.com/glowf1sh/obs-stable-stream-source/releases) ausführen, er findet den OBS-Ordner selbst und kann später auch aktualisieren oder deinstallieren. Dann in der Szene eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
+**Einrichtung:** Unter Windows den Installer von der [Releases-Seite](https://github.com/glowf1sh/obs-stable-stream-source/releases) ausführen, er findet den OBS-Ordner selbst und kann später auch aktualisieren oder deinstallieren. Dann in der Szene über **+** eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen (siehe Bild oben) und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
 
 **Von Glowfish:** Stable Stream Source wird von der **[Glowfish GmbH & Co. KG](https://www.glowfish.de)** aus München entwickelt. Außerdem bietet Glowfish an:
 

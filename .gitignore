@@ -6,6 +6,7 @@
 !/build-aux
 !/cmake
 !/data
+!/docs
 !/installer
 !/src
 !.clang-format
