@@ -64,11 +64,12 @@ const
 
 function ProcessRunning(Name: String): Boolean;
 var
-  Wmi, Found: Variant;
+  Locator, Wmi, Found: Variant;
 begin
   Result := False;
   try
-    Wmi := CreateOleObject('WbemScripting.SWbemLocator').ConnectServer('.', 'root\CIMV2');
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Wmi := Locator.ConnectServer('.', 'root\CIMV2');
     Found := Wmi.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE Name = ''' + Name + '''');
     Result := Found.Count > 0;
   except
