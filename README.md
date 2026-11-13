@@ -4,7 +4,7 @@ An OBS Studio source for network streams (SRT, RTMP, RIST, UDP, HLS and anything
 
 *Deutsche Kurzfassung weiter unten.*
 
-> **Status:** early development. The first release is being tested on OBS Studio 31.0.4 (Windows). Behaviour described below is the design goal of version 0.1.
+> **Status:** early development. The first release is being tested on OBS Studio 31.0.4 (Windows). Feedback is welcome.
 
 ## Why this plugin exists
 
@@ -25,35 +25,27 @@ From then on audio and video have two different reference points. The difference
 
 ## What this plugin does differently
 
-Stable Stream Source decodes the stream itself and does the timing **before** OBS sees the frames:
+Stable Stream Source is the regular OBS Media Source, taken from OBS Studio 31.0.4, with one change in how network streams are timed:
 
-1. Stream time is mapped to the computer clock with **one mapping shared by audio and video**.
-2. Every frame is handed to OBS at its mapped time, with a timestamp close to the current clock. A small playout buffer (default 250 ms) absorbs network jitter.
-3. When the stream timestamps jump (gap, new session, reconnect), the mapping is re-anchored **for audio and video at the same moment**. Their relative timing is taken from the stream, so they stay in sync.
+1. The source paces the stream as before. Each audio and video frame is handed to OBS when it is due.
+2. Instead of passing on the stream timestamps, the source gives every frame the time at which it is due on the computer clock. Audio and video use **the same pacing**, so their relative timing is taken from the stream and stays exactly as the sender produced it.
+3. When the stream timestamps jump (gap, new session, reconnect), the pacing starts again from the current clock **for audio and video at the same moment**.
 
-OBS never sees a timestamp jump, so its own re-anchoring of the audio is never triggered. The source does not need to be restarted, the picture does not go black, and no scene switching tool has to "refresh" the source.
+OBS never sees a timestamp jump, so its own re-anchoring of the audio is never triggered. The source does not need to be restarted and no scene switching tool has to "refresh" it. Local files are played exactly like in the Media Source.
 
-The plugin reconnects automatically after the connection is lost.
+## Features and settings
 
-## Settings
+Everything the Media Source can do, with the same settings: local files and network URLs, input format, network buffering, reconnect delay, **hardware decoding**, restart on activate, close when inactive, speed, YUV color range, linear alpha, FFmpeg options, looping and media controls.
 
-| Setting | Meaning |
-|---|---|
-| Stream URL | Any address FFmpeg can open, e.g. `srt://host:port?streamid=...&latency=1000000`, `rtmp://...`, `rist://...`, `udp://...`, `https://.../index.m3u8` |
-| Input format | Optional, e.g. `mpegts`. Leave empty for auto detection. |
-| Playout buffer | Extra delay in milliseconds to absorb network jitter (default 250 ms). |
-| Reconnect delay | Seconds to wait before reconnecting after the stream was lost. |
-| Disconnect while the source is not visible | Saves bandwidth when the source is not used in the active scene. |
-| Show nothing while disconnected | Clears the picture when the connection is lost (otherwise the last frame stays). |
-| YUV color range | Auto, partial or full. |
+For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted.
 
-For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted. Additional network buffering in OBS is not needed.
+If your sender itself delivers audio and video with an offset (some cameras do), that offset is part of the stream. Correct it once with the audio sync offset in the OBS advanced audio properties.
 
 ## Compatibility
 
-- OBS Studio 31.x (built against 31.0.4) on Windows (x64) and macOS. Linux builds use the system FFmpeg.
+- OBS Studio 31.x (built against 31.0.4) on Windows (x64), macOS and Linux.
 - Uses the FFmpeg libraries shipped with OBS, no extra installation needed.
-- Software decoding in this version.
+- Works with any sender: smartphones, action cameras, hardware encoders and bonding solutions, as long as FFmpeg can open the stream.
 
 ## Installation
 
@@ -88,7 +80,9 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 
 **Das Problem:** Reißt die Verbindung kurz ab, etwa durch ein Funkloch, einen Netzwechsel oder einen Anruf auf dem Handy, laufen in der normalen OBS-Medienquelle danach Bild und Ton oft um 0,2 bis 0,5 Sekunden auseinander. Das bleibt so, bis man die Quelle von Hand neu startet. Ursache: OBS richtet nach einem Zeitsprung im Stream den Ton neu an der aktuellen Uhrzeit aus, das Bild aber nicht.
 
-**Die Lösung:** Diese Quelle dekodiert den Stream selbst und ordnet Bild und Ton über **eine gemeinsame Zuordnung** der Computeruhr zu. Springen die Zeitstempel, wird diese Zuordnung für beide gleichzeitig neu gesetzt. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Die Quelle muss dafür nicht neu gestartet werden, das Bild wird nicht schwarz, und nach einem Abbruch verbindet sie sich von selbst wieder.
+**Die Lösung:** Die Quelle ist die normale OBS-Medienquelle aus OBS 31.0.4 mit allen Funktionen, auch Hardwaredekodierung. Geändert ist nur die Zeitgebung bei Netzwerk-Streams: Jedes Bild und jeder Ton bekommt die Uhrzeit, zu der er fällig ist, und zwar über **eine gemeinsame Taktung** für beide. Springen die Zeitstempel im Stream, beginnt diese Taktung für Bild und Ton gleichzeitig neu. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Die Quelle muss dafür nicht neu gestartet werden.
+
+Liefert schon der Sender Bild und Ton versetzt (manche Kameras tun das), steckt der Versatz im Stream selbst. Den gleicht man einmalig mit dem Audio-Versatz in den erweiterten Audioeigenschaften von OBS aus.
 
 **Einrichtung:** Plugin installieren, in der Szene eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
 
