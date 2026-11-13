@@ -75,6 +75,7 @@ struct mp_pipe_stats {
 	uint64_t dropped_packets;
 	uint64_t skips;
 	bool software;
+	int64_t video_after_audio; /* ns, latest video arrival relative to the audio */
 };
 
 struct mp_pipe {
@@ -118,6 +119,13 @@ struct mp_pipe {
 
 	/* software fallback */
 	enum mp_pipe_fallback fb;
+	bool hw_unused; /* hardware device open, but FFmpeg decodes in software */
+
+	/* arrival time minus timestamp, per stats interval */
+	int64_t skew_a_min;
+	int64_t skew_v_max;
+	bool skew_a_set;
+	bool skew_v_set;
 	uint64_t fb_start_ns;
 	uint64_t trouble_since;
 	int trouble;

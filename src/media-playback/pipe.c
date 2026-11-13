@@ -214,11 +214,29 @@ static void *read_thread(void *data)
 			continue;
 		}
 
+		/* arrival relative to the timestamp, for the diagnosis line */
+		int64_t ts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
+		int64_t skew = 0;
+		if (ts != AV_NOPTS_VALUE)
+			skew = (int64_t)(uintptr_t)pkt->opaque -
+			       av_rescale_q(ts, m->fmt->streams[pkt->stream_index]->time_base,
+					    (AVRational){1, 1000000000});
+
 		pthread_mutex_lock(&p->mutex);
 		if (pipe_stopped(p)) {
 			pthread_mutex_unlock(&p->mutex);
 			mp_media_free_packet(m, pkt);
 			break;
+		}
+		if (ts != AV_NOPTS_VALUE) {
+			if (audio && (!p->skew_a_set || skew < p->skew_a_min)) {
+				p->skew_a_min = skew;
+				p->skew_a_set = true;
+			}
+			if (video && (!p->skew_v_set || skew > p->skew_v_max)) {
+				p->skew_v_max = skew;
+				p->skew_v_set = true;
+			}
 		}
 		if (audio) {
 			while (packet_count(&p->audio_packets) >= MP_PIPE_AUDIO_PACKETS_MAX)
@@ -330,7 +348,7 @@ static void try_switch(struct mp_pipe *p)
 /* mutex held */
 static void note_trouble(struct mp_pipe *p, int points)
 {
-	if (p->fb != MP_PIPE_FB_NONE || !p->sw_valid)
+	if (p->fb != MP_PIPE_FB_NONE || !p->sw_valid || p->hw_unused)
 		return;
 
 	uint64_t now = os_gettime_ns();
@@ -594,6 +612,14 @@ static void *copy_thread(void *data)
 			continue;
 		}
 
+		if (d->hw && item.frame->format != d->hw_format && !p->hw_unused) {
+			pthread_mutex_lock(&p->mutex);
+			p->hw_unused = true;
+			pthread_mutex_unlock(&p->mutex);
+			blog(LOG_WARNING, "[stable-stream-source] the GPU does not decode this stream "
+					  "(see the FFmpeg messages above), decoding in software");
+		}
+
 		if (d->hw && item.frame->format == d->hw_format) {
 			AVFrame *sw = av_frame_alloc();
 			int err = sw ? av_hwframe_transfer_data(sw, item.frame, 0) : AVERROR(ENOMEM);
@@ -640,6 +666,7 @@ static bool open_sw_decoder(struct mp_pipe *p)
 		return false;
 
 	c->thread_count = 0;
+	c->thread_type = FF_THREAD_SLICE;
 	if (avcodec_parameters_to_context(c, d->stream->codecpar) < 0 || avcodec_open2(c, d->codec, NULL) < 0) {
 		avcodec_free_context(&c);
 		return false;
@@ -909,6 +936,9 @@ void mp_pipe_get_stats(struct mp_pipe *p, struct mp_pipe_stats *s)
 	s->copy_errors = p->copy_errors;
 	s->dropped_packets = p->dropped_packets;
 	s->skips = p->skips;
-	s->software = p->fb == MP_PIPE_FB_SWITCHED;
+	s->software = p->fb == MP_PIPE_FB_SWITCHED || p->hw_unused;
+	s->video_after_audio = p->skew_a_set && p->skew_v_set ? p->skew_v_max - p->skew_a_min : 0;
+	p->skew_a_set = false;
+	p->skew_v_set = false;
 	pthread_mutex_unlock(&p->mutex);
 }

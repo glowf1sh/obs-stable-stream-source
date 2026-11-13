@@ -619,6 +619,8 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 			}
 			f = d->frame;
 			m->pipe_frames++;
+			if (m->next_pts_ns - d->frame_pts > m->pipe_max_late)
+				m->pipe_max_late = m->next_pts_ns - d->frame_pts;
 		}
 
 		d->frame_ready = false;
@@ -1036,17 +1038,20 @@ static void mp_media_pipe_log(mp_media_t *m)
 		blog(LOG_INFO,
 		     "[stable-stream-source] video last %" PRIu64 " s (%s decoding): %" PRIu64 " frames, %" PRIu64
 		     " late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "
-		     "skipped to keyframe %" PRIu64 " times, decode errors %" PRIu64 ", copy errors %" PRIu64
-		     ", dropped packets %" PRIu64,
+		     "skipped to keyframe %" PRIu64 " times, latest frame %" PRId64
+		     " ms late, video arrives up to %" PRId64 " ms after the audio, decode errors %" PRIu64
+		     ", copy errors %" PRIu64 ", dropped packets %" PRIu64,
 		     (now - m->pipe_stat_since) / 1000000000,
 		     (st.software || !m->v.hw) ? "software" : mp_media_hw_name(m), m->pipe_frames, m->pipe_skipped,
 		     m->pipe_empty_count, m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips,
-		     st.decode_errors, st.copy_errors, st.dropped_packets);
+		     m->pipe_max_late / 1000000, st.video_after_audio / 1000000, st.decode_errors, st.copy_errors,
+		     st.dropped_packets);
 	}
 
 	m->pipe_stat_since = now;
 	m->pipe_frames = 0;
 	m->pipe_skipped = 0;
+	m->pipe_max_late = 0;
 	m->pipe_empty_count = 0;
 	m->pipe_min_buffered = SIZE_MAX;
 }

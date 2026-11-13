@@ -4,7 +4,7 @@ An OBS Studio source for network streams (SRT, RTMP, RIST, UDP, HLS and anything
 
 *Deutsche Kurzfassung weiter unten.*
 
-> **Status:** stable release 0.1.8, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
+> **Status:** stable release 0.1.9, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
 
 ## Why this plugin exists
 

@@ -99,6 +99,7 @@ struct mp_media {
 	uint64_t pipe_stat_since;
 	uint64_t pipe_frames;
 	uint64_t pipe_skipped;
+	int64_t pipe_max_late;
 	uint64_t pipe_empty_count;
 	size_t pipe_min_buffered;
 

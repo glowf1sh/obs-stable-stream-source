@@ -18,6 +18,7 @@
 
 #include "media-playback.h"
 #include "media.h"
+#include <libavutil/hwcontext.h>
 #include <libavutil/mastering_display_metadata.h>
 
 enum AVHWDeviceType hw_priority[] = {
@@ -86,13 +87,23 @@ static int mp_open_codec(struct mp_decode *d, bool hw)
 		init_hw_decoder(d, c);
 
 	/* Stable Stream Source: frames wait between the decode and the copy
-	 * thread (pipe.c), fixed hardware pools (D3D11VA) need room for them. */
-	if (d->hw && !d->audio && d->m->pipe_wanted)
+	 * thread (pipe.c), fixed hardware pools (D3D11VA) need room for them.
+	 * Not for CUDA: its output frames come from a growing pool, and extra
+	 * decode surfaces exceed the nvdec limit of 32. */
+	if (d->hw && !d->audio && d->m->pipe_wanted &&
+	    ((AVHWDeviceContext *)d->hw_ctx->data)->type != AV_HWDEVICE_TYPE_CUDA)
 		c->extra_hw_frames = MP_PIPE_EXTRA_HW_FRAMES;
 
 	if (c->thread_count == 1 && c->codec_id != AV_CODEC_ID_PNG && c->codec_id != AV_CODEC_ID_TIFF &&
 	    c->codec_id != AV_CODEC_ID_JPEG2000 && c->codec_id != AV_CODEC_ID_MPEG4 && c->codec_id != AV_CODEC_ID_WEBP)
 		c->thread_count = 0;
+
+	/* Stable Stream Source: no frame threading for video decoded in own
+	 * threads. It holds back one frame per thread (up to 16, 0.27 s at
+	 * 60 fps), more than the buffer, and needs a decode surface per thread
+	 * with hardware decoding. */
+	if (!d->audio && d->m->pipe_wanted)
+		c->thread_type = FF_THREAD_SLICE;
 
 	ret = avcodec_open2(c, d->codec, NULL);
 	if (ret < 0)
