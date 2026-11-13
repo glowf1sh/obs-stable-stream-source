@@ -18,6 +18,7 @@
 
 #include <obs.h>
 #include "decode.h"
+#include "pipe.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +61,7 @@ struct mp_media {
 	uint8_t *scale_pic[4];
 
 	DARRAY(AVPacket *) packet_pool;
+	pthread_mutex_t pool_mutex;
 	struct mp_decode v;
 	struct mp_decode a;
 	bool request_preload;
@@ -87,6 +89,18 @@ struct mp_media {
 	int64_t start_ts;
 	int64_t base_ts;
 	bool full_decode;
+
+	/* Stable Stream Source: video decoding in own threads (pipe.c) */
+	bool pipe_wanted;
+	struct mp_pipe pipe;
+	AVFrame *pipe_frame;
+	uint64_t pipe_wait_video_until;
+	bool pipe_empty;
+	uint64_t pipe_stat_since;
+	uint64_t pipe_frames;
+	uint64_t pipe_skipped;
+	uint64_t pipe_empty_count;
+	size_t pipe_min_buffered;
 
 	uint64_t interrupt_poll_ts;
 

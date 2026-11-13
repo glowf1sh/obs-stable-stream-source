@@ -49,6 +49,7 @@ target_sources(
     src/media-playback/decode.c
     src/media-playback/media-playback.c
     src/media-playback/media.c
+    src/media-playback/pipe.c
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

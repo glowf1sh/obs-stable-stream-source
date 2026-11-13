@@ -85,6 +85,11 @@ static int mp_open_codec(struct mp_decode *d, bool hw)
 	if (hw)
 		init_hw_decoder(d, c);
 
+	/* Stable Stream Source: frames wait between the decode and the copy
+	 * thread (pipe.c), fixed hardware pools (D3D11VA) need room for them. */
+	if (d->hw && !d->audio && d->m->pipe_wanted)
+		c->extra_hw_frames = MP_PIPE_EXTRA_HW_FRAMES;
+
 	if (c->thread_count == 1 && c->codec_id != AV_CODEC_ID_PNG && c->codec_id != AV_CODEC_ID_TIFF &&
 	    c->codec_id != AV_CODEC_ID_JPEG2000 && c->codec_id != AV_CODEC_ID_MPEG4 && c->codec_id != AV_CODEC_ID_WEBP)
 		c->thread_count = 0;

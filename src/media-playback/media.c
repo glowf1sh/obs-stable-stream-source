@@ -17,7 +17,8 @@
 /*
  * Stable Stream Source: this file is the OBS Studio 31.0.4 media playback
  * (shared/media-playback/media-playback/media.c) with changed timestamps for
- * network streams, see mp_media_frame_ts().
+ * network streams, see mp_media_frame_ts(), and video decoding in own threads
+ * for network streams with hardware decoding, see pipe.c.
  * Modified by Glowfish GmbH & Co. KG, 2026.
  */
 #include <inttypes.h>
@@ -30,6 +31,7 @@
 #include "closest-format.h"
 
 #include <libavdevice/avdevice.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 
 static int64_t base_sys_ts = 0;
@@ -165,22 +167,33 @@ static inline struct mp_decode *get_packet_decoder(mp_media_t *media, const AVPa
 	return NULL;
 }
 
+/* the packet pool is shared with the threads in pipe.c */
 void mp_media_free_packet(struct mp_media *media, AVPacket *pkt)
 {
 	av_packet_unref(pkt);
+	pthread_mutex_lock(&media->pool_mutex);
 	da_push_back(media->packet_pool, &pkt);
+	pthread_mutex_unlock(&media->pool_mutex);
 }
 
-static int mp_media_next_packet(mp_media_t *media)
+AVPacket *mp_media_get_packet(struct mp_media *media)
 {
 	AVPacket *pkt;
+	pthread_mutex_lock(&media->pool_mutex);
 	AVPacket **const cached = da_end(media->packet_pool);
 	if (cached) {
 		pkt = *cached;
 		da_pop_back(media->packet_pool);
 	} else {
-		pkt = av_packet_alloc();
+		pkt = NULL;
 	}
+	pthread_mutex_unlock(&media->pool_mutex);
+	return pkt ? pkt : av_packet_alloc();
+}
+
+static int mp_media_next_packet(mp_media_t *media)
+{
+	AVPacket *pkt = mp_media_get_packet(media);
 
 	int ret = av_read_frame(media->fmt, pkt);
 	if (ret < 0) {
@@ -268,36 +281,134 @@ static bool mp_media_init_scaling(mp_media_t *m)
 	return true;
 }
 
+/* Stable Stream Source: the next decoded video frame from pipe.c, if any */
+static void mp_media_pipe_next_video(mp_media_t *m)
+{
+	struct mp_pipe_frame item;
+
+	if (m->v.frame_ready || !mp_pipe_pop_video(&m->pipe, &item))
+		return;
+
+	av_frame_free(&m->pipe_frame);
+	m->pipe_frame = item.frame;
+	m->obsframe.data[0] = NULL;
+	m->v.frame = item.frame;
+	m->v.frame_pts = item.pts;
+	m->v.next_pts = item.next_pts;
+	m->v.frame_ready = true;
+}
+
+/* The audio never waits for the video. Only before the clock starts, the
+ * first video frame is awaited (at most MP_PIPE_FIRST_VIDEO_NS), so both
+ * start together. */
+#define MP_PIPE_FIRST_VIDEO_NS 3000000000ULL
+
+static bool mp_media_pipe_ready(mp_media_t *m)
+{
+	bool v_ok = !m->has_video || m->v.frame_ready || m->v.eof;
+	if (!m->has_audio)
+		return v_ok;
+	if (!m->a.frame_ready && !m->a.eof)
+		return false;
+	if (v_ok || !m->pipe_wait_video_until)
+		return true;
+	if (os_gettime_ns() >= m->pipe_wait_video_until) {
+		m->pipe_wait_video_until = 0;
+		return true;
+	}
+	return false;
+}
+
+static bool mp_media_prepare_frames_pipe(mp_media_t *m)
+{
+	mp_pipe_set_clock(&m->pipe, m->next_ns ? m->next_pts_ns : 0);
+
+	for (;;) {
+		int ret = 0;
+
+		if (m->has_video) {
+			mp_media_pipe_next_video(m);
+			if (!m->v.frame_ready && !m->v.eof && mp_pipe_video_done(&m->pipe))
+				m->v.eof = true;
+		}
+
+		if (m->has_audio && !m->eof)
+			mp_pipe_take_audio(&m->pipe, &m->a.packets);
+
+		if (!m->eof && mp_pipe_read_done(&m->pipe, &ret) &&
+		    (!m->has_audio || (!m->a.packets.size && !m->a.packet_pending && !m->a.frame_ready))) {
+			if (ret != AVERROR_EOF && ret != AVERROR_EXIT)
+				return false;
+			m->eof = true;
+		}
+
+		if (m->has_audio && !m->a.eof && !mp_decode_frame(&m->a))
+			return false;
+
+		if (mp_media_pipe_ready(m))
+			break;
+
+		pthread_mutex_lock(&m->mutex);
+		bool kill = m->kill;
+		pthread_mutex_unlock(&m->mutex);
+		if (kill)
+			return true;
+
+		mp_pipe_wait(&m->pipe, 20);
+	}
+
+	if (m->has_video && m->next_ns && !m->v.eof) {
+		if (!m->v.frame_ready) {
+			if (!m->pipe_empty)
+				m->pipe_empty_count++;
+			m->pipe_empty = true;
+			m->pipe_min_buffered = 0;
+		} else {
+			m->pipe_empty = false;
+			size_t n = mp_pipe_video_buffered(&m->pipe) + 1;
+			if (n < m->pipe_min_buffered)
+				m->pipe_min_buffered = n;
+		}
+	}
+
+	return true;
+}
+
 bool mp_media_prepare_frames(mp_media_t *m)
 {
 	bool actively_seeking = m->seek_next_ts && m->pause;
 
-	while (!mp_media_ready_to_start(m)) {
-		if (!m->eof) {
-			int ret = mp_media_next_packet(m);
-			if (ret == AVERROR_EOF || ret == AVERROR_EXIT) {
-				if (!actively_seeking) {
-					m->eof = true;
-				} else {
-					break;
+	if (m->pipe.active) {
+		if (!mp_media_prepare_frames_pipe(m))
+			return false;
+	} else {
+		while (!mp_media_ready_to_start(m)) {
+			if (!m->eof) {
+				int ret = mp_media_next_packet(m);
+				if (ret == AVERROR_EOF || ret == AVERROR_EXIT) {
+					if (!actively_seeking) {
+						m->eof = true;
+					} else {
+						break;
+					}
+				} else if (ret < 0) {
+					return false;
 				}
-			} else if (ret < 0) {
-				return false;
 			}
-		}
 
-		/* kind of a cheap fix, but because a stinger might be
+			/* kind of a cheap fix, but because a stinger might be
 		 * interrupted and restart playback, the request_preload signal
 		 * might happen when the current frame is invalid, so clear out
 		 * these pointers to signify they're not valid. (the obsframe
 		 * structure is only used in the media thread, so this isn't a
 		 * threading issue) */
-		m->obsframe.data[0] = NULL;
+			m->obsframe.data[0] = NULL;
 
-		if (m->has_video && !mp_decode_frame(&m->v))
-			return false;
-		if (m->has_audio && !mp_decode_frame(&m->a))
-			return false;
+			if (m->has_video && !mp_decode_frame(&m->v))
+				return false;
+			if (m->has_audio && !mp_decode_frame(&m->a))
+				return false;
+		}
 	}
 
 	if (m->has_video && m->v.frame_ready && !m->swscale) {
@@ -368,6 +479,13 @@ static inline int64_t mp_media_get_base_pts(mp_media_t *m)
  * audio back to back while the video jumps ahead, so the sound lags.
  */
 #define MP_LATE_NS 250000000ULL
+
+/* With video decoding in own threads, presentation runs behind the data. */
+static inline uint64_t mp_media_delay_ns(mp_media_t *m)
+{
+	return m->pipe.active ? MP_PIPE_DELAY_NS : 0;
+}
+
 #define MP_CATCH_UP_NS 2000000000ULL
 #define MP_PROGRESS_NS 200000000ULL
 
@@ -413,7 +531,7 @@ static void mp_media_check_late(mp_media_t *m)
 	     "[stable-stream-source] data arrives late, moving the clock by %" PRIu64 " ms after dropping %" PRIu64
 	     " frames",
 	     late / 1000000, m->dropped_frames);
-	m->next_ns = now;
+	m->next_ns = now + mp_media_delay_ns(m);
 	m->late_since = 0;
 }
 
@@ -475,6 +593,19 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 	if (!preload) {
 		if (!mp_media_can_play_frame(m, d))
 			return;
+
+		/* Stable Stream Source: late video only drops video. If the
+		 * following frame is due as well, show only the newest one. */
+		if (m->pipe.active && !m->dropping) {
+			int64_t pts;
+			while (mp_pipe_peek_video_pts(&m->pipe, &pts) && pts <= m->next_pts_ns) {
+				d->frame_ready = false;
+				mp_media_pipe_next_video(m);
+				m->pipe_skipped++;
+			}
+			f = d->frame;
+			m->pipe_frames++;
+		}
 
 		d->frame_ready = false;
 
@@ -598,8 +729,15 @@ static void mp_media_calc_next_ns(mp_media_t *m)
 #ifdef _DEBUG
 		assert(delta >= 0);
 #endif
-		if (delta < 0)
+		if (delta < 0) {
+			/* Stable Stream Source: with video decoding in own
+			 * threads, a late video frame must not move the clock
+			 * back, the following audio would get a gap. Only
+			 * timestamp jumps re-anchor it. */
+			if (m->pipe.active && delta > -MAX_TS_VAR)
+				min_next_ns = m->next_pts_ns;
 			delta = 0;
+		}
 		if (delta > 3000000000)
 			delta = 0;
 	}
@@ -662,7 +800,11 @@ bool mp_media_reset(mp_media_t *m)
 	m->stopping = false;
 	pthread_mutex_unlock(&m->mutex);
 
-	if (!mp_media_prepare_frames(m))
+	if (m->pipe.active && !m->next_ns)
+		m->pipe_wait_video_until = os_gettime_ns() + MP_PIPE_FIRST_VIDEO_NS;
+	bool prepared = mp_media_prepare_frames(m);
+	m->pipe_wait_video_until = 0;
+	if (!prepared)
 		return false;
 
 	if (active) {
@@ -690,9 +832,10 @@ static inline bool mp_media_sleep(mp_media_t *m)
 {
 	bool timeout = false;
 
-	if (!m->next_ns) {
-		m->next_ns = os_gettime_ns();
-	} else {
+	if (!m->next_ns)
+		m->next_ns = os_gettime_ns() + mp_media_delay_ns(m);
+
+	{
 		const uint64_t t = os_gettime_ns();
 		if (m->next_ns > t) {
 			const uint32_t delta_ms = (uint32_t)((m->next_ns - t + 500000) / 1000000);
@@ -740,6 +883,7 @@ static int interrupt_callback(void *data)
 		pthread_mutex_lock(&m->mutex);
 		stop = m->kill || m->stopping;
 		pthread_mutex_unlock(&m->mutex);
+		stop = stop || mp_pipe_stopping(&m->pipe);
 
 		m->interrupt_poll_ts = ts;
 	}
@@ -828,6 +972,64 @@ bool mp_media_init2(mp_media_t *m)
 	return true;
 }
 
+static const char *mp_media_hw_name(mp_media_t *m)
+{
+	if (!m->v.hw || !m->v.hw_ctx)
+		return "none";
+	const AVHWDeviceContext *ctx = (const AVHWDeviceContext *)m->v.hw_ctx->data;
+	const char *name = av_hwdevice_get_type_name(ctx->type);
+	return name ? name : "unknown";
+}
+
+static void mp_media_pipe_start(mp_media_t *m)
+{
+	if (!m->pipe_wanted || !m->has_video)
+		return;
+
+	if (!mp_pipe_start(&m->pipe, m)) {
+		mp_pipe_free(&m->pipe);
+		blog(LOG_WARNING, "[stable-stream-source] could not start the video threads, decoding in one thread");
+		return;
+	}
+
+	m->pipe_stat_since = os_gettime_ns();
+	m->pipe_min_buffered = SIZE_MAX;
+	blog(LOG_INFO,
+	     "[stable-stream-source] video decoding in own threads (hardware: %s), audio independent, "
+	     "%" PRIu64 " ms buffer",
+	     mp_media_hw_name(m), (uint64_t)(MP_PIPE_DELAY_NS / 1000000));
+}
+
+/* one line per minute while the stream runs, for diagnosis */
+#define MP_PIPE_STAT_NS 60000000000ULL
+
+static void mp_media_pipe_log(mp_media_t *m)
+{
+	uint64_t now = os_gettime_ns();
+	if (now - m->pipe_stat_since < MP_PIPE_STAT_NS)
+		return;
+
+	struct mp_pipe_stats st;
+	mp_pipe_get_stats(&m->pipe, &st);
+
+	if (m->pipe_frames) {
+		blog(LOG_INFO,
+		     "[stable-stream-source] video last %" PRIu64 " s: %" PRIu64 " frames, %" PRIu64
+		     " late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "
+		     "skipped to keyframe %" PRIu64 " times, decode errors %" PRIu64 ", copy errors %" PRIu64
+		     ", dropped packets %" PRIu64,
+		     (now - m->pipe_stat_since) / 1000000000, m->pipe_frames, m->pipe_skipped, m->pipe_empty_count,
+		     m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips, st.decode_errors,
+		     st.copy_errors, st.dropped_packets);
+	}
+
+	m->pipe_stat_since = now;
+	m->pipe_frames = 0;
+	m->pipe_skipped = 0;
+	m->pipe_empty_count = 0;
+	m->pipe_min_buffered = SIZE_MAX;
+}
+
 static inline bool mp_media_thread(mp_media_t *m)
 {
 	os_set_thread_name("mp_media_thread");
@@ -835,6 +1037,7 @@ static inline bool mp_media_thread(mp_media_t *m)
 	if (!mp_media_init2(m)) {
 		return false;
 	}
+	mp_media_pipe_start(m);
 	if (!mp_media_reset(m)) {
 		return false;
 	}
@@ -918,6 +1121,8 @@ static inline bool mp_media_thread(mp_media_t *m)
 				continue;
 
 			mp_media_calc_next_ns(m);
+			if (m->pipe.active)
+				mp_media_pipe_log(m);
 		}
 	}
 
@@ -951,6 +1156,7 @@ static inline bool mp_media_init_internal(mp_media_t *m, const struct mp_media_i
 	m->path = info->path ? bstrdup(info->path) : NULL;
 	m->format_name = info->format ? bstrdup(info->format) : NULL;
 	m->hw = info->hardware_decoding;
+	m->pipe_wanted = m->hw && !info->is_local_file && !info->full_decode;
 
 	if (info->full_decode)
 		return true;
@@ -968,6 +1174,11 @@ bool mp_media_init(mp_media_t *media, const struct mp_media_info *info)
 {
 	memset(media, 0, sizeof(*media));
 	pthread_mutex_init_value(&media->mutex);
+	pthread_mutex_init_value(&media->pool_mutex);
+	if (pthread_mutex_init(&media->pool_mutex, NULL) != 0) {
+		blog(LOG_WARNING, "[stable-stream-source] Failed to init mutex");
+		return false;
+	}
 	media->opaque = info->opaque;
 	media->v_cb = info->v_cb;
 	media->a_cb = info->a_cb;
@@ -1023,6 +1234,8 @@ void mp_media_free(mp_media_t *media)
 
 	mp_media_stop(media);
 	mp_kill_thread(media);
+	mp_pipe_free(&media->pipe);
+	av_frame_free(&media->pipe_frame);
 	mp_decode_free(&media->v);
 	mp_decode_free(&media->a);
 	for (size_t i = 0; i < media->packet_pool.num; i++)
@@ -1030,6 +1243,7 @@ void mp_media_free(mp_media_t *media)
 	da_free(media->packet_pool);
 	avformat_close_input(&media->fmt);
 	pthread_mutex_destroy(&media->mutex);
+	pthread_mutex_destroy(&media->pool_mutex);
 	os_sem_destroy(media->sem);
 	sws_freeContext(media->swscale);
 	av_freep(&media->scale_pic[0]);
@@ -1037,6 +1251,7 @@ void mp_media_free(mp_media_t *media)
 	bfree(media->format_name);
 	memset(media, 0, sizeof(*media));
 	pthread_mutex_init_value(&media->mutex);
+	pthread_mutex_init_value(&media->pool_mutex);
 }
 
 void mp_media_play(mp_media_t *m, bool loop, bool reconnecting)

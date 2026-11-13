@@ -4,7 +4,7 @@ An OBS Studio source for network streams (SRT, RTMP, RIST, UDP, HLS and anything
 
 *Deutsche Kurzfassung weiter unten.*
 
-> **Status:** stable release 0.1.6, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
+> **Status:** stable release 0.1.7, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
 
 ## Why this plugin exists
 
@@ -36,6 +36,10 @@ OBS never sees a timestamp jump, so its own re-anchoring of the audio is never t
 ## Features and settings
 
 Everything the Media Source can do, with the same settings: local files and network URLs, input format, network buffering, reconnect delay, **hardware decoding**, restart on activate, close when inactive, speed, YUV color range, linear alpha, FFmpeg options and looping. Like the Media Source with a network stream, the source has no play/pause controls in OBS, which also keeps the toolbar quiet while the source waits for a stream.
+
+### Hardware decoding
+
+With hardware decoding, every video frame has to be copied back from the GPU, and the Media Source waits for that in the same thread that also paces the audio. A busy or power-saving GPU then delays the sound as well, which is heard as short dropouts every few seconds. For network streams with hardware decoding, Stable Stream Source decodes and copies the video in separate threads (both overlap) and keeps a small buffer of decoded frames. The audio never waits for the video, audio and video stay on the same clock, and short GPU stalls do not reach the picture. This adds 0.1 s of latency to the source. If the video decoding falls more than 0.2 s behind, it skips ahead to the next keyframe instead of drifting out of sync. Software decoding and local files work exactly as before.
 
 For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted.
 
@@ -100,6 +104,8 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 **Das Problem:** Reißt die Verbindung kurz ab, etwa durch ein Funkloch, einen Netzwechsel oder einen Anruf auf dem Handy, laufen in der normalen OBS-Medienquelle danach Bild und Ton oft um 0,2 bis 0,5 Sekunden auseinander. Das bleibt so, bis man die Quelle von Hand neu startet. Ursache: OBS richtet nach einem Zeitsprung im Stream den Ton neu an der aktuellen Uhrzeit aus, das Bild aber nicht.
 
 **Die Lösung:** Die Quelle ist die normale OBS-Medienquelle aus OBS 31.0.4 mit allen Funktionen, auch Hardwaredekodierung. Geändert ist nur die Zeitgebung bei Netzwerk-Streams: Jedes Bild und jeder Ton bekommt die Uhrzeit, zu der er fällig ist, und zwar über **eine gemeinsame Taktung** für beide. Springen die Zeitstempel im Stream, beginnt diese Taktung für Bild und Ton gleichzeitig neu. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Die Quelle muss dafür nicht neu gestartet werden.
+
+**Hardwaredekodierung:** Bei Netzwerk-Streams mit Hardwaredekodierung dekodiert die Quelle das Bild in eigenen Abläufen mit einem kleinen Vorrat. Der Ton wartet nie auf die Grafikkarte, Bild und Ton bleiben auf derselben Taktung. Kurze Hänger der Grafikkarte erreichen das Bild nicht, dafür ist die Quelle 0,1 Sekunden später dran.
 
 Liefert schon der Sender Bild und Ton versetzt (manche Kameras tun das), steckt der Versatz im Stream selbst. Den gleicht man einmalig mit dem Audio-Versatz in den erweiterten Audioeigenschaften von OBS aus.
 
