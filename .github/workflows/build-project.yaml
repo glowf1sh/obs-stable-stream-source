@@ -134,6 +134,12 @@ jobs:
           notarizationUser: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
           notarizationPassword: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
 
+      - name: Cache Dependencies 📦
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps
+          key: ${{ runner.os }}-deps-${{ hashFiles('buildspec.json') }}
+
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
         with:
@@ -276,6 +282,12 @@ jobs:
 
           "pluginName=${ProductName}" >> $env:GITHUB_OUTPUT
           "pluginVersion=${ProductVersion}" >> $env:GITHUB_OUTPUT
+
+      - name: Cache Dependencies 📦
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps
+          key: ${{ runner.os }}-deps-${{ hashFiles('buildspec.json') }}
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
