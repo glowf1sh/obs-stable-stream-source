@@ -290,6 +290,18 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
+      - name: Build Installer 💿
+        run: |
+          # Build Installer 💿
+          $Iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if ( ! ( Test-Path $Iscc ) ) {
+            choco install innosetup --no-progress -y
+          }
+          & $Iscc /Qp "/DAppVersion=${{ steps.setup.outputs.pluginVersion }}" `
+            "/DSourceDir=${{ github.workspace }}\release\${{ needs.check-event.outputs.config }}" `
+            installer/obs-stable-stream-source.iss
+          if ( $LASTEXITCODE -ne 0 ) { throw "ISCC failed" }
+
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
