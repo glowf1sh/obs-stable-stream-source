@@ -36,6 +36,17 @@ endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ffmpeg.cmake")
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/stable-source.c)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE
+    src/plugin-main.c
+    src/stable-stream-source.c
+    src/media-playback/cache.c
+    src/media-playback/decode.c
+    src/media-playback/media-playback.c
+    src/media-playback/media.c
+)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
