@@ -20,6 +20,7 @@
  * Modified by Glowfish GmbH & Co. KG, 2026.
  */
 #include <obs-module.h>
+#include <plugin-support.h>
 #include <util/threading.h>
 #include <util/platform.h>
 #include <util/dstr.h>
@@ -215,6 +216,13 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 
 	prop = obs_properties_add_text(props, "ffmpeg_options", obs_module_text("FFmpegOpts"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(prop, obs_module_text("FFmpegOpts.ToolTip.Source"));
+
+	char about[512];
+	snprintf(about, sizeof(about),
+		 "Stable Stream Source %s &middot; %s<br>&copy; 2026 "
+		 "<a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a>",
+		 PLUGIN_VERSION, PLUGIN_BUILD_DATE);
+	obs_properties_add_text(props, "about", about, OBS_TEXT_INFO);
 
 	return props;
 }
