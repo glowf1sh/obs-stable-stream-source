@@ -20,6 +20,7 @@
  * network streams, see mp_media_frame_ts().
  * Modified by Glowfish GmbH & Co. KG, 2026.
  */
+#include <inttypes.h>
 #include <util/platform.h>
 
 #include <assert.h>
@@ -184,7 +185,7 @@ static int mp_media_next_packet(mp_media_t *media)
 	int ret = av_read_frame(media->fmt, pkt);
 	if (ret < 0) {
 		if (ret != AVERROR_EOF && ret != AVERROR_EXIT)
-			blog(LOG_WARNING, "MP: av_read_frame failed: %s (%d)", av_err2str(ret), ret);
+			blog(LOG_WARNING, "[stable-stream-source] av_read_frame failed: %s (%d)", av_err2str(ret), ret);
 		return ret;
 	}
 
@@ -251,7 +252,7 @@ static bool mp_media_init_scaling(mp_media_t *m)
 					  m->v.frame->width, m->v.frame->height, m->scale_format, SWS_POINT, NULL, NULL,
 					  NULL);
 	if (!m->swscale) {
-		blog(LOG_WARNING, "MP: Failed to initialize scaler");
+		blog(LOG_WARNING, "[stable-stream-source] Failed to initialize scaler");
 		return false;
 	}
 
@@ -260,7 +261,7 @@ static bool mp_media_init_scaling(mp_media_t *m)
 	int ret = av_image_alloc(m->scale_pic, m->scale_linesizes, m->v.frame->width, m->v.frame->height,
 				 m->scale_format, 32);
 	if (ret < 0) {
-		blog(LOG_WARNING, "MP: Failed to create scale pic data");
+		blog(LOG_WARNING, "[stable-stream-source] Failed to create scale pic data");
 		return false;
 	}
 
@@ -378,17 +379,28 @@ static void mp_media_check_late(mp_media_t *m)
 
 	uint64_t now = os_gettime_ns();
 	if (m->next_ns + MP_LATE_NS >= now) {
+		if (m->late_since)
+			blog(LOG_INFO,
+			     "[stable-stream-source] caught up after %" PRIu64 " ms, dropped %" PRIu64 " late frames",
+			     (now - m->late_since) / 1000000, m->dropped_frames);
 		m->late_since = 0;
 		return;
 	}
 
-	if (!m->late_since)
+	if (!m->late_since) {
 		m->late_since = now;
+		m->dropped_frames = 0;
+		blog(LOG_INFO, "[stable-stream-source] %" PRIu64 " ms behind, dropping late frames",
+		     (now - m->next_ns) / 1000000);
+	}
 	if (now - m->late_since < MP_CATCH_UP_NS) {
 		m->dropping = true;
+		m->dropped_frames++;
 		return;
 	}
 
+	blog(LOG_INFO, "[stable-stream-source] data keeps arriving late, moving the clock by %" PRIu64 " ms",
+	     (now - m->next_ns) / 1000000);
 	m->next_ns = now;
 	m->late_since = 0;
 }
@@ -461,8 +473,9 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 	}
 
 	if (!f->width || !f->height) {
-		blog(LOG_ERROR, "MP: media frame width or height are zero ('%s': %" PRIu32 "x%" PRIu32 ")", m->path,
-		     f->width, f->height);
+		blog(LOG_ERROR,
+		     "[stable-stream-source] media frame width or height are zero ('%s': %" PRIu32 "x%" PRIu32 ")",
+		     m->path, f->width, f->height);
 		return;
 	}
 
@@ -601,7 +614,7 @@ static void seek_to(mp_media_t *m, int64_t pos)
 	if (m->is_local_file) {
 		int ret = av_seek_frame(m->fmt, 0, seek_target, seek_flags);
 		if (ret < 0) {
-			blog(LOG_WARNING, "MP: Failed to seek: %s", av_err2str(ret));
+			blog(LOG_WARNING, "[stable-stream-source] Failed to seek: %s", av_err2str(ret));
 		}
 	}
 
@@ -732,7 +745,7 @@ static bool init_avformat(mp_media_t *m)
 		format = av_find_input_format(m->format_name);
 		if (!format)
 			blog(LOG_INFO,
-			     "MP: Unable to find input format for "
+			     "[stable-stream-source] Unable to find input format for "
 			     "'%s'",
 			     m->path);
 	}
@@ -763,12 +776,12 @@ static bool init_avformat(mp_media_t *m)
 
 	if (ret < 0) {
 		if (!m->reconnecting)
-			blog(LOG_WARNING, "MP: Failed to open media: '%s'", m->path);
+			blog(LOG_WARNING, "[stable-stream-source] Failed to open media: '%s'", m->path);
 		return false;
 	}
 
 	if (avformat_find_stream_info(m->fmt, NULL) < 0) {
-		blog(LOG_WARNING, "MP: Failed to find stream info for '%s'", m->path);
+		blog(LOG_WARNING, "[stable-stream-source] Failed to find stream info for '%s'", m->path);
 		return false;
 	}
 
@@ -778,7 +791,7 @@ static bool init_avformat(mp_media_t *m)
 
 	if (!m->has_video && !m->has_audio) {
 		blog(LOG_WARNING,
-		     "MP: Could not initialize audio or video: "
+		     "[stable-stream-source] Could not initialize audio or video: "
 		     "'%s'",
 		     m->path);
 		return false;
@@ -915,11 +928,11 @@ static void *mp_media_thread_start(void *opaque)
 static inline bool mp_media_init_internal(mp_media_t *m, const struct mp_media_info *info)
 {
 	if (pthread_mutex_init(&m->mutex, NULL) != 0) {
-		blog(LOG_WARNING, "MP: Failed to init mutex");
+		blog(LOG_WARNING, "[stable-stream-source] Failed to init mutex");
 		return false;
 	}
 	if (os_sem_init(&m->sem, 0) != 0) {
-		blog(LOG_WARNING, "MP: Failed to init semaphore");
+		blog(LOG_WARNING, "[stable-stream-source] Failed to init semaphore");
 		return false;
 	}
 
@@ -931,7 +944,7 @@ static inline bool mp_media_init_internal(mp_media_t *m, const struct mp_media_i
 		return true;
 
 	if (pthread_create(&m->thread, NULL, mp_media_thread_start, m) != 0) {
-		blog(LOG_WARNING, "MP: Could not create media thread");
+		blog(LOG_WARNING, "[stable-stream-source] Could not create media thread");
 		return false;
 	}
 
@@ -1081,7 +1094,7 @@ int64_t mp_media_get_frames(mp_media_t *m)
 	int video_stream_index = av_find_best_stream(m->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
 
 	if (video_stream_index < 0) {
-		blog(LOG_WARNING, "MP: Getting number of frames failed: No "
+		blog(LOG_WARNING, "[stable-stream-source] Getting number of frames failed: No "
 				  "video stream in media file!");
 		return 0;
 	}
@@ -1091,7 +1104,7 @@ int64_t mp_media_get_frames(mp_media_t *m)
 	if (stream->nb_frames > 0) {
 		frames = stream->nb_frames;
 	} else {
-		blog(LOG_DEBUG, "MP: nb_frames not set, estimating using frame "
+		blog(LOG_DEBUG, "[stable-stream-source] nb_frames not set, estimating using frame "
 				"rate and duration");
 		AVRational avg_frame_rate = stream->avg_frame_rate;
 		frames = (int64_t)ceil((double)m->fmt->duration / (double)AV_TIME_BASE * (double)avg_frame_rate.num /
