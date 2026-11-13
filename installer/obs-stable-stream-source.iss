@@ -27,7 +27,6 @@ DirExistsWarning=no
 AppendDefaultDirName=no
 UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
-LicenseFile=..\LICENSE
 OutputDir=..\release
 OutputBaseFilename=obs-stable-stream-source-{#AppVersion}-windows-x64-installer
 ArchitecturesAllowed=x64compatible
@@ -42,8 +41,8 @@ Compression=lzma2
 SolidCompression=yes
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "de"; MessagesFile: "compiler:Languages\German.isl"
+Name: "en"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "info-en.txt"
+Name: "de"; MessagesFile: "compiler:Languages\German.isl"; InfoBeforeFile: "info-de.txt"
 
 [CustomMessages]
 en.NoObs=OBS Studio was not found in the selected folder. Please choose the OBS Studio installation folder (it contains bin\64bit\obs64.exe).

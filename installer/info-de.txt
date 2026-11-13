@@ -1,0 +1,9 @@
+Stabile Stream-Quelle für OBS Studio
+
+Hält Bild und Ton von Netzwerk-Streams (SRT, RTMP, RIST, HLS) nach Verbindungsabbrüchen synchron.
+
+Copyright (C) 2026 Glowfish GmbH & Co. KG
+https://www.glowfish.de
+
+Freie Software unter der GNU General Public License, Version 2 oder neuer. Sie dürfen sie nutzen, weitergeben und verändern. Eine Gewährleistung gibt es nicht.
+Lizenz und Quellcode: https://github.com/glowf1sh/obs-stable-stream-source
