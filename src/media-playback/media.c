@@ -362,12 +362,14 @@ static inline int64_t mp_media_get_base_pts(mp_media_t *m)
  * (the stream stalled and the rest arrives in a burst), late audio and
  * video are dropped together until the clock is reached again, which also
  * brings the source back to live. If the data itself keeps arriving late
- * for longer than MP_CATCH_UP_NS, the clock is moved once for both.
+ * and catching up makes no progress within MP_PROGRESS_NS (at most
+ * MP_CATCH_UP_NS), the clock is moved once for both.
  * Stamping late frames with the current time instead lets libobs pack the
  * audio back to back while the video jumps ahead, so the sound lags.
  */
 #define MP_LATE_NS 250000000ULL
 #define MP_CATCH_UP_NS 2000000000ULL
+#define MP_PROGRESS_NS 200000000ULL
 
 static void mp_media_check_late(mp_media_t *m)
 {
@@ -378,7 +380,8 @@ static void mp_media_check_late(mp_media_t *m)
 	}
 
 	uint64_t now = os_gettime_ns();
-	if (m->next_ns + MP_LATE_NS >= now) {
+	uint64_t late = now > m->next_ns ? now - m->next_ns : 0;
+	if (late <= MP_LATE_NS) {
 		if (m->late_since)
 			blog(LOG_INFO,
 			     "[stable-stream-source] caught up after %" PRIu64 " ms, dropped %" PRIu64 " late frames",
@@ -389,18 +392,27 @@ static void mp_media_check_late(mp_media_t *m)
 
 	if (!m->late_since) {
 		m->late_since = now;
+		m->late_start_ns = late;
 		m->dropped_frames = 0;
-		blog(LOG_INFO, "[stable-stream-source] %" PRIu64 " ms behind, dropping late frames",
-		     (now - m->next_ns) / 1000000);
+		blog(LOG_INFO, "[stable-stream-source] %" PRIu64 " ms behind, dropping late frames", late / 1000000);
 	}
-	if (now - m->late_since < MP_CATCH_UP_NS) {
+
+	/* Dropping only helps while buffered data is waiting: then the clock
+	 * gains on real time quickly. If the data itself arrives late, nothing
+	 * can be caught up, so the clock is moved at once instead of dropping
+	 * everything that arrives in the meantime. */
+	uint64_t elapsed = now - m->late_since;
+	bool no_progress = elapsed >= MP_PROGRESS_NS && late * 4 > m->late_start_ns * 3;
+	if (!no_progress && elapsed < MP_CATCH_UP_NS) {
 		m->dropping = true;
 		m->dropped_frames++;
 		return;
 	}
 
-	blog(LOG_INFO, "[stable-stream-source] data keeps arriving late, moving the clock by %" PRIu64 " ms",
-	     (now - m->next_ns) / 1000000);
+	blog(LOG_INFO,
+	     "[stable-stream-source] data arrives late, moving the clock by %" PRIu64 " ms after dropping %" PRIu64
+	     " frames",
+	     late / 1000000, m->dropped_frames);
 	m->next_ns = now;
 	m->late_since = 0;
 }

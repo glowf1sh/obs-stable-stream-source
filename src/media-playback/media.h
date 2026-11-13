@@ -83,6 +83,7 @@ struct mp_media {
 	uint64_t late_since;
 	bool dropping;
 	uint64_t dropped_frames;
+	uint64_t late_start_ns;
 	int64_t start_ts;
 	int64_t base_ts;
 	bool full_decode;
