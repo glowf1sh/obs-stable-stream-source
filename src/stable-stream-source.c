@@ -531,6 +531,12 @@ static const char *ffmpeg_source_getname(void *unused)
 	return obs_module_text("StableStreamSource");
 }
 
+/* Without OBS_SOURCE_CONTROLLABLE_MEDIA, libobs ignores obs_source_media_restart()
+ * and friends, so this source calls its own handlers directly. */
+static void ffmpeg_source_play_pause(void *data, bool pause);
+static void ffmpeg_source_stop(void *data);
+static void ffmpeg_source_restart(void *data);
+
 static void restart_hotkey(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
 {
 	UNUSED_PARAMETER(id);
@@ -541,7 +547,7 @@ static void restart_hotkey(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, b
 
 	struct ffmpeg_source *s = data;
 	if (obs_source_showing(s->source))
-		obs_source_media_restart(s->source);
+		ffmpeg_source_restart(s);
 }
 
 static void restart_proc(void *data, calldata_t *cd)
@@ -589,7 +595,7 @@ static bool ffmpeg_source_play_hotkey(void *data, obs_hotkey_pair_id id, obs_hot
 	if (s->state == OBS_MEDIA_STATE_PLAYING || !obs_source_showing(s->source))
 		return false;
 
-	obs_source_media_play_pause(s->source, false);
+	ffmpeg_source_play_pause(s, false);
 	return true;
 }
 
@@ -606,7 +612,7 @@ static bool ffmpeg_source_pause_hotkey(void *data, obs_hotkey_pair_id id, obs_ho
 	if (s->state != OBS_MEDIA_STATE_PLAYING || !obs_source_showing(s->source))
 		return false;
 
-	obs_source_media_play_pause(s->source, true);
+	ffmpeg_source_play_pause(s, true);
 	return true;
 }
 
@@ -621,7 +627,7 @@ static void ffmpeg_source_stop_hotkey(void *data, obs_hotkey_id id, obs_hotkey_t
 	struct ffmpeg_source *s = data;
 
 	if (obs_source_showing(s->source))
-		obs_source_media_stop(s->source);
+		ffmpeg_source_stop(s);
 }
 
 static void *ffmpeg_source_create(obs_data_t *settings, obs_source_t *source)
@@ -688,7 +694,7 @@ static void ffmpeg_source_activate(void *data)
 	struct ffmpeg_source *s = data;
 
 	if (s->restart_on_activate)
-		obs_source_media_restart(s->source);
+		ffmpeg_source_restart(s);
 }
 
 static void ffmpeg_source_deactivate(void *data)
