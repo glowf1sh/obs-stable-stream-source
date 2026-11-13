@@ -127,8 +127,8 @@ begin
     exit;
   case TaskDialogMsgBox(CustomMessage('FoundTitle'),
                         FmtMessage(CustomMessage('FoundText'), [Installed, '{#AppVersion}']),
-                        mbConfirmation, MB_YESNOCANCEL,
-                        [CustomMessage('BtnUpdate'), CustomMessage('BtnUninstall'), CustomMessage('BtnCancel')], 0) of
+                        mbConfirmation, MB_YESNOCANCEL, [CustomMessage('BtnUpdate'),
+                        CustomMessage('BtnUninstall'), CustomMessage('BtnCancel')], 0) of
     IDYES:
       Result := True;
     IDNO:
