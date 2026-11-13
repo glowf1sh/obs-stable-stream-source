@@ -57,6 +57,10 @@
  * further and further behind the sound. */
 #define MP_PIPE_SKIP_NS 200000000LL
 
+/* A packet that waited this long in the queue shows a decoder backlog.
+ * Packets that arrive late themselves cannot be helped by skipping. */
+#define MP_PIPE_BACKLOG_NS 100000000ULL
+
 /* larger differences are timestamp jumps of the stream, not lateness */
 #define MP_PIPE_JUMP_NS 2000000000LL
 
@@ -484,6 +488,13 @@ static bool decode_packet(struct mp_pipe *p, struct mp_pipe_vdec *dec, AVPacket 
 	return true;
 }
 
+static void set_decoding(struct mp_pipe *p, bool *flag, bool on)
+{
+	pthread_mutex_lock(&p->mutex);
+	*flag = on;
+	pthread_mutex_unlock(&p->mutex);
+}
+
 /* returns true if the packet is skipped */
 static bool skip_late_packet(struct mp_pipe *p, struct mp_pipe_vdec *dec, AVPacket *pkt, int64_t clock_pts)
 {
@@ -500,8 +511,10 @@ static bool skip_late_packet(struct mp_pipe *p, struct mp_pipe_vdec *dec, AVPack
 	 * waiting long (the decoder stalled) */
 	bool jump = (behind > MP_PIPE_JUMP_NS || behind < -MP_PIPE_JUMP_NS) && waited < (uint64_t)MP_PIPE_SKIP_NS;
 
+	bool backlog = waited >= MP_PIPE_BACKLOG_NS;
+
 	if (!dec->skipping) {
-		if (behind <= MP_PIPE_SKIP_NS || jump)
+		if (behind <= MP_PIPE_SKIP_NS || jump || !backlog)
 			return false;
 		dec->skipping = true;
 		dec->skip_start_ns = os_gettime_ns();
@@ -511,7 +524,7 @@ static bool skip_late_packet(struct mp_pipe *p, struct mp_pipe_vdec *dec, AVPack
 		     behind / 1000000);
 	}
 
-	if ((pkt->flags & AV_PKT_FLAG_KEY) && (behind <= 0 || jump)) {
+	if ((pkt->flags & AV_PKT_FLAG_KEY) && (behind <= MP_PIPE_SKIP_NS / 2 || jump || !backlog)) {
 		avcodec_flush_buffers(dec->c);
 		dec->skipping = false;
 		pthread_mutex_lock(&p->mutex);
@@ -558,7 +571,9 @@ static void *decode_thread(void *data)
 			continue;
 		}
 
+		set_decoding(p, &p->hw_decoding, true);
 		bool running = idle || decode_packet(p, &p->hwd, pkt);
+		set_decoding(p, &p->hw_decoding, false);
 		if (pkt)
 			mp_media_free_packet(p->m, pkt);
 		if (!running)
@@ -712,7 +727,9 @@ static void *sw_thread(void *data)
 			continue;
 		}
 
+		set_decoding(p, &p->sw_decoding, true);
 		bool running = decode_packet(p, &p->swd, pkt);
+		set_decoding(p, &p->sw_decoding, false);
 		if (pkt)
 			mp_media_free_packet(p->m, pkt);
 		if (!running)
@@ -865,11 +882,19 @@ bool mp_pipe_pop_video(struct mp_pipe *p, struct mp_pipe_frame *out)
 	return got;
 }
 
-/* the buffer ran empty; counts as trouble only if undecoded data waits */
+/* The buffer ran empty. Counts as trouble only if undecoded data has been
+ * waiting for a while (a burst after late arrival is not a slow GPU). */
 void mp_pipe_note_empty(struct mp_pipe *p)
 {
 	pthread_mutex_lock(&p->mutex);
-	if (p->video_packets.size || p->hw_count)
+	bool backlog = p->hw_count >= MP_PIPE_HW_MAX;
+	if (!backlog && p->video_packets.size) {
+		AVPacket **head = deque_data(&p->video_packets, 0);
+		uint64_t arrived = (uint64_t)(uintptr_t)(*head)->opaque;
+		uint64_t now = os_gettime_ns();
+		backlog = arrived && now > arrived && now - arrived >= MP_PIPE_BACKLOG_NS;
+	}
+	if (backlog)
 		note_trouble(p, 1);
 	pthread_mutex_unlock(&p->mutex);
 }
@@ -919,6 +944,20 @@ bool mp_pipe_read_done(struct mp_pipe *p, int *ret)
 		*ret = p->read_ret;
 	pthread_mutex_unlock(&p->mutex);
 	return done;
+}
+
+/* No video data is waiting anywhere in the pipe: the next frame has not
+ * arrived yet (as opposed to a decoder that is too slow). */
+bool mp_pipe_video_starved(struct mp_pipe *p)
+{
+	pthread_mutex_lock(&p->mutex);
+	bool starved = !p->out_count && !p->hw_count;
+	if (p->fb == MP_PIPE_FB_SWITCHED)
+		starved = starved && !p->sw_packets.size && !p->sw_decoding;
+	else
+		starved = starved && !p->video_packets.size && !p->hw_decoding;
+	pthread_mutex_unlock(&p->mutex);
+	return starved;
 }
 
 bool mp_pipe_video_done(struct mp_pipe *p)

@@ -119,7 +119,9 @@ struct mp_pipe {
 
 	/* software fallback */
 	enum mp_pipe_fallback fb;
-	bool hw_unused; /* hardware device open, but FFmpeg decodes in software */
+	bool hw_unused;   /* hardware device open, but FFmpeg decodes in software */
+	bool hw_decoding; /* a packet is in the hardware decoder thread */
+	bool sw_decoding; /* a packet is in the software decoder thread */
 
 	/* arrival time minus timestamp, per stats interval */
 	int64_t skew_a_min;
@@ -161,6 +163,7 @@ extern size_t mp_pipe_video_buffered(struct mp_pipe *p);
 extern void mp_pipe_wait(struct mp_pipe *p, uint32_t ms);
 extern bool mp_pipe_read_done(struct mp_pipe *p, int *ret);
 extern bool mp_pipe_video_done(struct mp_pipe *p);
+extern bool mp_pipe_video_starved(struct mp_pipe *p);
 
 #ifdef __cplusplus
 }

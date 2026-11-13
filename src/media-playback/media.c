@@ -319,6 +319,37 @@ static bool mp_media_pipe_ready(mp_media_t *m)
 	return false;
 }
 
+/* Stable Stream Source: if the next video frame is due before the next
+ * audio frame but has not even arrived yet (nothing waits in the pipe), the
+ * audio waits for it, like in the OBS media source (at most
+ * MP_PIPE_ARRIVAL_WAIT_NS, longer delays are handled by mp_media_check_late). Audio and video then stay in sync without dropping video. A slow
+ * decoder never holds the audio back: then data is waiting in the pipe. */
+#define MP_PIPE_ARRIVAL_WAIT_NS 2000000000ULL
+
+static bool mp_media_pipe_wait_video(mp_media_t *m)
+{
+	bool wait = m->has_video && m->has_audio && m->next_ns && !m->v.frame_ready && !m->v.eof && m->a.frame_ready &&
+		    m->v.next_pts && m->v.next_pts <= m->a.frame_pts && m->a.frame_pts - m->v.next_pts < 2000000000LL &&
+		    mp_pipe_video_starved(&m->pipe);
+	if (!wait) {
+		if (m->pipe_wait_since) {
+			uint64_t waited = os_gettime_ns() - m->pipe_wait_since;
+			m->pipe_waits++;
+			if (waited > m->pipe_wait_max)
+				m->pipe_wait_max = waited;
+			m->pipe_wait_since = 0;
+		}
+		return false;
+	}
+
+	uint64_t now = os_gettime_ns();
+	if (!m->pipe_wait_since)
+		m->pipe_wait_since = now;
+	if (now - m->pipe_wait_since < MP_PIPE_ARRIVAL_WAIT_NS)
+		return true;
+	return false;
+}
+
 static bool mp_media_prepare_frames_pipe(mp_media_t *m)
 {
 	mp_pipe_set_clock(&m->pipe, m->next_ns ? m->next_pts_ns : 0);
@@ -345,7 +376,7 @@ static bool mp_media_prepare_frames_pipe(mp_media_t *m)
 		if (m->has_audio && !m->a.eof && !mp_decode_frame(&m->a))
 			return false;
 
-		if (mp_media_pipe_ready(m))
+		if (mp_media_pipe_ready(m) && !mp_media_pipe_wait_video(m))
 			break;
 
 		pthread_mutex_lock(&m->mutex);
@@ -1039,19 +1070,22 @@ static void mp_media_pipe_log(mp_media_t *m)
 		     "[stable-stream-source] video last %" PRIu64 " s (%s decoding): %" PRIu64 " frames, %" PRIu64
 		     " late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "
 		     "skipped to keyframe %" PRIu64 " times, latest frame %" PRId64
-		     " ms late, video arrives up to %" PRId64 " ms after the audio, decode errors %" PRIu64
-		     ", copy errors %" PRIu64 ", dropped packets %" PRIu64,
+		     " ms late, video arrives up to %" PRId64
+		     " ms after the audio, audio waited for late video %" PRIu64 " times (up to %" PRIu64
+		     " ms), decode errors %" PRIu64 ", copy errors %" PRIu64 ", dropped packets %" PRIu64,
 		     (now - m->pipe_stat_since) / 1000000000,
 		     (st.software || !m->v.hw) ? "software" : mp_media_hw_name(m), m->pipe_frames, m->pipe_skipped,
 		     m->pipe_empty_count, m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips,
-		     m->pipe_max_late / 1000000, st.video_after_audio / 1000000, st.decode_errors, st.copy_errors,
-		     st.dropped_packets);
+		     m->pipe_max_late / 1000000, st.video_after_audio / 1000000, m->pipe_waits,
+		     m->pipe_wait_max / 1000000, st.decode_errors, st.copy_errors, st.dropped_packets);
 	}
 
 	m->pipe_stat_since = now;
 	m->pipe_frames = 0;
 	m->pipe_skipped = 0;
 	m->pipe_max_late = 0;
+	m->pipe_waits = 0;
+	m->pipe_wait_max = 0;
 	m->pipe_empty_count = 0;
 	m->pipe_min_buffered = SIZE_MAX;
 }
