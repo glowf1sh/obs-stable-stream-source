@@ -220,9 +220,10 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 	/* Spanning group so the notice starts at the left edge of the dialog. */
 	char title[128];
 	snprintf(title, sizeof(title), "Stable Stream Source %s \xc2\xb7 %s", PLUGIN_VERSION, PLUGIN_BUILD_DATE);
-	const char *about = "&copy; 2026 <a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a><br>"
-			    "<a href=\"https://github.com/glowf1sh/obs-stable-stream-source\">"
-			    "github.com/glowf1sh/obs-stable-stream-source</a>";
+	const char *about =
+		"&copy; 2026 <a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a><br>"
+		"<a href=\"https://github.com/glowf1sh/obs-stable-stream-source\">"
+		"github.com/glowf1sh/obs-stable-stream-source</a>";
 	obs_properties_t *about_group = obs_properties_create();
 	obs_properties_add_text(about_group, "about", about, OBS_TEXT_INFO);
 	obs_properties_add_group(props, "about_group", title, OBS_GROUP_NORMAL, about_group);
