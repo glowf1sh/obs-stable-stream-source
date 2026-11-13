@@ -146,6 +146,15 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 
 	obs_properties_t *props = obs_properties_create();
 
+	char about[512];
+	snprintf(about, sizeof(about),
+		 "Stable Stream Source %s &middot; %s<br>&copy; 2026 "
+		 "<a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a><br>"
+		 "<a href=\"https://github.com/glowf1sh/obs-stable-stream-source\">"
+		 "github.com/glowf1sh/obs-stable-stream-source</a>",
+		 PLUGIN_VERSION, PLUGIN_BUILD_DATE);
+	obs_properties_add_text(props, "about", about, OBS_TEXT_INFO);
+
 	obs_properties_set_flags(props, OBS_PROPERTIES_DEFER_UPDATE);
 
 	obs_property_t *prop;
@@ -216,15 +225,6 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 
 	prop = obs_properties_add_text(props, "ffmpeg_options", obs_module_text("FFmpegOpts"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(prop, obs_module_text("FFmpegOpts.ToolTip.Source"));
-
-	char about[512];
-	snprintf(about, sizeof(about),
-		 "Stable Stream Source %s &middot; %s<br>&copy; 2026 "
-		 "<a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a><br>"
-		 "<a href=\"https://github.com/glowf1sh/obs-stable-stream-source\">"
-		 "github.com/glowf1sh/obs-stable-stream-source</a>",
-		 PLUGIN_VERSION, PLUGIN_BUILD_DATE);
-	obs_properties_add_text(props, "about", about, OBS_TEXT_INFO);
 
 	return props;
 }
