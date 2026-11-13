@@ -67,7 +67,7 @@ The project is based on the official [OBS plugin template](https://github.com/ob
 
 Stable Stream Source is developed and maintained by **[Glowfish GmbH & Co. KG](https://www.glowfish.de/en)**, a hosting provider from Munich, Germany. It grew out of our own IRL streaming infrastructure, where we run relays for live streaming over mobile networks.
 
-At Glowfish you can rent:
+Glowfish also offers:
 
 - **[IRL streaming relays](https://www.glowfish.de/en/irl-streaming)**: SRT and SRTLA (bonding of several mobile connections), automatic scene switching for OBS and bitrate overlays, hosted by us or self-hosted on your own hardware
 - **[Game servers](https://www.glowfish.de/en/spieleserver)**: Minecraft, Valheim, Factorio, Terraria, Project Zomboid and more
@@ -92,7 +92,7 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 
 **Einrichtung:** Plugin installieren, in der Szene eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
 
-**Von Glowfish:** Stable Stream Source wird von der **[Glowfish GmbH & Co. KG](https://www.glowfish.de)** aus München entwickelt. Bei uns kannst du mieten:
+**Von Glowfish:** Stable Stream Source wird von der **[Glowfish GmbH & Co. KG](https://www.glowfish.de)** aus München entwickelt. Außerdem bietet Glowfish an:
 
 - **[IRL-Streaming-Relays](https://www.glowfish.de/irl-streaming)** mit SRT und SRTLA (Bündelung mehrerer Mobilfunkverbindungen), automatischer Szenenumschaltung für OBS und Bitrate-Overlays, bei uns gehostet oder selbst betrieben auf eigener Hardware
 - **[Spieleserver](https://www.glowfish.de/spieleserver)** für Minecraft, Valheim, Factorio, Terraria, Project Zomboid und mehr
