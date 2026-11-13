@@ -356,17 +356,51 @@ static inline int64_t mp_media_get_base_pts(mp_media_t *m)
  * streams therefore get the wall-clock time at which the frame is due.
  * Audio and video stay on the same clock and libobs never sees a jump.
  * Local files keep the original timestamps.
+ *
+ * Frames are never handed over late. If the thread falls behind its clock
+ * (the stream stalled and the rest arrives in a burst), late audio and
+ * video are dropped together until the clock is reached again, which also
+ * brings the source back to live. If the data itself keeps arriving late
+ * for longer than MP_CATCH_UP_NS, the clock is moved once for both.
+ * Stamping late frames with the current time instead lets libobs pack the
+ * audio back to back while the video jumps ahead, so the sound lags.
  */
+#define MP_LATE_NS 250000000ULL
+#define MP_CATCH_UP_NS 2000000000ULL
+
+static void mp_media_check_late(mp_media_t *m)
+{
+	m->dropping = false;
+	if (m->is_local_file || m->full_decode || !m->next_ns) {
+		m->late_since = 0;
+		return;
+	}
+
+	uint64_t now = os_gettime_ns();
+	if (m->next_ns + MP_LATE_NS >= now) {
+		m->late_since = 0;
+		return;
+	}
+
+	if (!m->late_since)
+		m->late_since = now;
+	if (now - m->late_since < MP_CATCH_UP_NS) {
+		m->dropping = true;
+		return;
+	}
+
+	m->next_ns = now;
+	m->late_since = 0;
+}
+
 static inline uint64_t mp_media_frame_ts(mp_media_t *m, int64_t frame_pts)
 {
 	if (m->is_local_file)
 		return (uint64_t)(m->base_ts + frame_pts - m->start_ts + m->play_sys_ts - base_sys_ts);
 
-	int64_t now = (int64_t)os_gettime_ns();
-	int64_t due = (int64_t)m->next_ns + (frame_pts - m->next_pts_ns);
-	if (!m->next_ns || due < now - 1000000000LL || due > now + 1000000000LL)
-		due = now;
-	return (uint64_t)due;
+	if (!m->next_ns)
+		return os_gettime_ns();
+	return (uint64_t)((int64_t)m->next_ns + (frame_pts - m->next_pts_ns));
 }
 
 static inline bool mp_media_can_play_frame(mp_media_t *m, struct mp_decode *d)
@@ -387,7 +421,7 @@ void mp_media_next_audio(mp_media_t *m)
 		return;
 
 	d->frame_ready = false;
-	if (!m->a_cb)
+	if (!m->a_cb || m->dropping)
 		return;
 
 	for (size_t i = 0; i < MAX_AV_PLANES; i++)
@@ -420,7 +454,7 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 
 		d->frame_ready = false;
 
-		if (!m->v_cb)
+		if (!m->v_cb || m->dropping)
 			return;
 	} else if (!d->frame_ready) {
 		return;
@@ -847,6 +881,7 @@ static inline bool mp_media_thread(mp_media_t *m)
 
 		/* frames are ready */
 		if (is_active && !timeout) {
+			mp_media_check_late(m);
 			if (m->has_video)
 				mp_media_next_video(m, false);
 			if (m->has_audio)
