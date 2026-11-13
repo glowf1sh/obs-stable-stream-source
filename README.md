@@ -31,7 +31,7 @@ Stable Stream Source decodes the stream itself and does the timing **before** OB
 2. Every frame is handed to OBS at its mapped time, with a timestamp close to the current clock. A small playout buffer (default 250 ms) absorbs network jitter.
 3. When the stream timestamps jump (gap, new session, reconnect), the mapping is re-anchored **for audio and video at the same moment**. Their relative timing is taken from the stream, so they stay in sync.
 
-OBS never sees a timestamp jump, so its own re-anchoring of the audio is never triggered. There is no restart of the source, no black frame and no need for scene switching tools to "refresh" the source.
+OBS never sees a timestamp jump, so its own re-anchoring of the audio is never triggered. The source does not need to be restarted, the picture does not go black, and no scene switching tool has to "refresh" the source.
 
 The plugin reconnects automatically after the connection is lost.
 
@@ -88,7 +88,7 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 
 **Das Problem:** Reißt die Verbindung kurz ab, etwa durch ein Funkloch, einen Netzwechsel oder einen Anruf auf dem Handy, laufen in der normalen OBS-Medienquelle danach Bild und Ton oft um 0,2 bis 0,5 Sekunden auseinander. Das bleibt so, bis man die Quelle von Hand neu startet. Ursache: OBS richtet nach einem Zeitsprung im Stream den Ton neu an der aktuellen Uhrzeit aus, das Bild aber nicht.
 
-**Die Lösung:** Diese Quelle dekodiert den Stream selbst und ordnet Bild und Ton über **eine gemeinsame Zuordnung** der Computeruhr zu. Springen die Zeitstempel, wird diese Zuordnung für beide gleichzeitig neu gesetzt. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Kein Neustart der Quelle, kein schwarzes Bild, automatische Wiederverbindung.
+**Die Lösung:** Diese Quelle dekodiert den Stream selbst und ordnet Bild und Ton über **eine gemeinsame Zuordnung** der Computeruhr zu. Springen die Zeitstempel, wird diese Zuordnung für beide gleichzeitig neu gesetzt. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Die Quelle muss dafür nicht neu gestartet werden, das Bild wird nicht schwarz, und nach einem Abbruch verbindet sie sich von selbst wieder.
 
 **Einrichtung:** Plugin installieren, in der Szene eine Quelle vom Typ **Stabile Stream-Quelle** hinzufügen und die Stream-Adresse eintragen. Bei SRT die Latenz in der Adresse angeben, zum Beispiel `&latency=1000000` für 1 Sekunde.
 
