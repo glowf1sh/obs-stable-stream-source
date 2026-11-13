@@ -1,0 +1,42 @@
+{
+    "dependencies": {
+        "obs-studio": {
+            "version": "31.0.4",
+            "baseUrl": "https://github.com/obsproject/obs-studio/archive/refs/tags",
+            "label": "OBS sources",
+            "hashes": {
+                "macos": "f0b53f0acd05ac0dc3044bd3700740f9d2b7a13504d55c0107468e84a860742b",
+                "windows-x64": "8e29030aa9ab75878b46ac3cb1045ad0e3cc3eb92c425a8b22b9b1d7b629dded"
+            }
+        },
+        "prebuilt": {
+            "version": "2024-09-12",
+            "baseUrl": "https://github.com/obsproject/obs-deps/releases/download",
+            "label": "Pre-Built obs-deps",
+            "hashes": {
+                "macos": "c857b211ee378772994b632036e1e5befe66b37e85286cb8e3cefc1435d5220a",
+                "windows-x64": "d4a4f194591766891ad3c0b267deec3c4b85239c8fe557273559927456aeedbb"
+            }
+        },
+        "qt6": {
+            "version": "2024-09-12",
+            "baseUrl": "https://github.com/obsproject/obs-deps/releases/download",
+            "label": "Pre-Built Qt6",
+            "hashes": {
+                "macos": "34a2de6b7f4d4d58fc5a15a4dba49a61d81a4045d0cedfc1a1f08c0dfb8047cf",
+                "windows-x64": "4d15ce13dbb0a8a2cabcce5ae0da5e80ee589b482a61b2025378465c1da32c4f"
+            }
+        }
+    },
+    "platformConfig": {
+        "macos": {
+            "bundleId": "de.glowfish.obs-stable-stream-source"
+        }
+    },
+    "name": "obs-stable-stream-source",
+    "displayName": "Stable Stream Source",
+    "version": "0.1.0",
+    "author": "Glowfish GmbH & Co. KG",
+    "website": "https://github.com/glowf1sh/obs-stable-stream-source",
+    "email": "support@glowfish.de"
+}
