@@ -220,7 +220,9 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 	char about[512];
 	snprintf(about, sizeof(about),
 		 "Stable Stream Source %s &middot; %s<br>&copy; 2026 "
-		 "<a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a>",
+		 "<a href=\"https://www.glowfish.de\">Glowfish GmbH &amp; Co. KG (glowf1sh)</a><br>"
+		 "<a href=\"https://github.com/glowf1sh/obs-stable-stream-source\">"
+		 "github.com/glowf1sh/obs-stable-stream-source</a>",
 		 PLUGIN_VERSION, PLUGIN_BUILD_DATE);
 	obs_properties_add_text(props, "about", about, OBS_TEXT_INFO);
 
