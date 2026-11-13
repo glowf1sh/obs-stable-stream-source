@@ -46,10 +46,16 @@ Name: "de"; MessagesFile: "compiler:Languages\German.isl"; InfoBeforeFile: "info
 [CustomMessages]
 en.NoObs=OBS Studio was not found in the selected folder. Please choose the OBS Studio installation folder (it contains bin\64bit\obs64.exe).
 de.NoObs=OBS Studio wurde im gewählten Ordner nicht gefunden. Bitte den Installationsordner von OBS Studio wählen (er enthält bin\64bit\obs64.exe).
-en.AlreadyInstalled=Stable Stream Source %1 is already installed.%n%nYes: update to version %2%nNo: uninstall%nCancel: exit
-en.ObsRunning=OBS Studio is still running. Please close OBS Studio completely and click Retry.
-de.ObsRunning=OBS Studio läuft noch. Bitte OBS Studio vollständig beenden und auf „Wiederholen“ klicken.
-de.AlreadyInstalled=Stable Stream Source %1 ist bereits installiert.%n%nJa: auf Version %2 aktualisieren%nNein: deinstallieren%nAbbrechen: beenden
+en.FoundTitle=Stable Stream Source is already installed
+en.FoundText=Currently installed version: %1%nUpdate to version: %2
+en.BtnUpdate=Update
+en.BtnUninstall=Uninstall
+en.BtnCancel=Cancel
+de.FoundTitle=Stable Stream Source ist bereits installiert
+de.FoundText=Aktuell installierte Version: %1%nUpdate auf Version: %2
+de.BtnUpdate=Aktualisieren
+de.BtnUninstall=Deinstallieren
+de.BtnCancel=Abbrechen
 
 [Files]
 Source: "{#SourceDir}\obs-stable-stream-source\bin\64bit\obs-stable-stream-source.dll"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion restartreplace uninsrestartdelete
@@ -119,8 +125,10 @@ begin
   Result := True;
   if not RegQueryStringValue(HKLM64, UninstKey, 'DisplayVersion', Installed) then
     exit;
-  case SuppressibleMsgBox(FmtMessage(CustomMessage('AlreadyInstalled'), [Installed, '{#AppVersion}']),
-                          mbConfirmation, MB_YESNOCANCEL, IDYES) of
+  case TaskDialogMsgBox(CustomMessage('FoundTitle'),
+                        FmtMessage(CustomMessage('FoundText'), [Installed, '{#AppVersion}']),
+                        mbConfirmation, MB_YESNOCANCEL,
+                        [CustomMessage('BtnUpdate'), CustomMessage('BtnUninstall'), CustomMessage('BtnCancel')], 0) of
     IDYES:
       Result := True;
     IDNO:
