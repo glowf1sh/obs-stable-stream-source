@@ -1,4 +1,3 @@
-
 # FFmpeg: on Windows and macOS from the obs-deps package OBS itself is built
 # with, so the plugin uses the FFmpeg libraries shipped with OBS at runtime.
 # On Linux from the system (same libraries the distribution's OBS uses).
