@@ -1,4 +1,4 @@
-; Windows installer for Stable Stream Source
+﻿; Windows installer for Stable Stream Source
 ; Copyright (C) 2026 Glowfish GmbH & Co. KG
 ;
 ; Installs into the OBS Studio folder. Running a newer installer updates the
