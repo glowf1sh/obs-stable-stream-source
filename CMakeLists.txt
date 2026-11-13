@@ -34,7 +34,7 @@ if(ENABLE_QT)
   )
 endif()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ffmpeg.cmake")
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/stable-source.c)
 
