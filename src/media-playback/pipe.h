@@ -36,6 +36,9 @@ struct mp_media;
  * thread can decode ahead and short GPU stalls are absorbed. */
 #define MP_PIPE_DELAY_NS 100000000ULL
 
+/* video later than this is dropped, not shown */
+#define MP_PIPE_STALE_NS 500000000LL
+
 /* extra hardware surfaces, frames wait between decode and copy thread */
 #define MP_PIPE_EXTRA_HW_FRAMES 6
 
@@ -45,11 +48,33 @@ struct mp_pipe_frame {
 	int64_t next_pts;
 };
 
+/* one video decoder with its timestamp state */
+struct mp_pipe_vdec {
+	AVCodecContext *c;
+	bool sw;
+	int64_t frame_pts;
+	int64_t next_pts;
+	int64_t last_duration;
+	bool skipping;
+	uint64_t skip_start_ns;
+	uint64_t skip_packets;
+};
+
+/* software fallback, see pipe.c */
+enum mp_pipe_fallback {
+	MP_PIPE_FB_NONE,     /* hardware decoding, no trouble */
+	MP_PIPE_FB_WAIT_KEY, /* trouble: software decoder starts at the next keyframe */
+	MP_PIPE_FB_RUNNING,  /* software decoder runs in parallel */
+	MP_PIPE_FB_SWITCHED, /* software decoder delivers, hardware idle */
+	MP_PIPE_FB_GAVE_UP,  /* software decoder could not catch up */
+};
+
 struct mp_pipe_stats {
 	uint64_t decode_errors;
 	uint64_t copy_errors;
 	uint64_t dropped_packets;
 	uint64_t skips;
+	bool software;
 };
 
 struct mp_pipe {
@@ -66,9 +91,11 @@ struct mp_pipe {
 	pthread_t read_thread;
 	pthread_t decode_thread;
 	pthread_t copy_thread;
+	pthread_t sw_thread;
 	bool read_valid;
 	bool decode_valid;
 	bool copy_valid;
+	bool sw_valid;
 
 	/* all fields below are protected by mutex */
 	bool read_done; /* reader ended, read_ret holds the reason */
@@ -84,13 +111,25 @@ struct mp_pipe {
 	size_t out_count;
 	int64_t clock_pts; /* media thread clock (next_pts_ns), 0 = not running */
 
-	/* decode thread only */
-	int64_t frame_pts;
-	int64_t next_pts;
-	int64_t last_duration;
-	bool skipping;
-	uint64_t skip_start_ns;
-	uint64_t skip_packets;
+	/* last frame handed to the output queue */
+	bool out_set;
+	int64_t out_pts;
+	int64_t out_next_pts;
+
+	/* software fallback */
+	enum mp_pipe_fallback fb;
+	uint64_t fb_start_ns;
+	uint64_t trouble_since;
+	int trouble;
+	struct deque sw_packets;  /* AVPacket *, reader -> sw thread */
+	struct deque gop_packets; /* AVPacket *, since the last keyframe */
+	bool gop_valid;
+	struct deque sw_frames; /* struct mp_pipe_frame, decoded ahead */
+	size_t sw_count;
+
+	/* owned by the decode thread (hardware) and the sw thread */
+	struct mp_pipe_vdec hwd;
+	struct mp_pipe_vdec swd;
 
 	/* statistics, protected by mutex */
 	uint64_t decode_errors;
@@ -107,6 +146,7 @@ extern void mp_pipe_get_stats(struct mp_pipe *p, struct mp_pipe_stats *s);
 /* media thread side */
 extern size_t mp_pipe_take_audio(struct mp_pipe *p, struct deque *dst);
 extern bool mp_pipe_pop_video(struct mp_pipe *p, struct mp_pipe_frame *out);
+extern void mp_pipe_note_empty(struct mp_pipe *p);
 extern void mp_pipe_set_clock(struct mp_pipe *p, int64_t clock_pts);
 extern bool mp_pipe_peek_video_pts(struct mp_pipe *p, int64_t *pts);
 extern size_t mp_pipe_video_buffered(struct mp_pipe *p);

@@ -4,7 +4,7 @@ An OBS Studio source for network streams (SRT, RTMP, RIST, UDP, HLS and anything
 
 *Deutsche Kurzfassung weiter unten.*
 
-> **Status:** stable release 0.1.7, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
+> **Status:** stable release 0.1.8, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
 
 ## Why this plugin exists
 
@@ -39,7 +39,7 @@ Everything the Media Source can do, with the same settings: local files and netw
 
 ### Hardware decoding
 
-With hardware decoding, every video frame has to be copied back from the GPU, and the Media Source waits for that in the same thread that also paces the audio. A busy or power-saving GPU then delays the sound as well, which is heard as short dropouts every few seconds. For network streams with hardware decoding, Stable Stream Source decodes and copies the video in separate threads (both overlap) and keeps a small buffer of decoded frames. The audio never waits for the video, audio and video stay on the same clock, and short GPU stalls do not reach the picture. This adds 0.1 s of latency to the source. If the video decoding falls more than 0.2 s behind, it skips ahead to the next keyframe instead of drifting out of sync. Software decoding and local files work exactly as before.
+With hardware decoding, every video frame has to be copied back from the GPU, and the Media Source waits for that in the same thread that also paces the audio. A busy or power-saving GPU then delays the sound as well, which is heard as short dropouts every few seconds. For network streams with hardware decoding, Stable Stream Source decodes and copies the video in separate threads (both overlap) and keeps a small buffer of decoded frames. The audio never waits for the video, audio and video stay on the same clock, and short GPU stalls do not reach the picture. This adds 0.1 s of latency to the source. If the video decoding falls more than 0.2 s behind, it skips ahead to the next keyframe instead of drifting out of sync. If the GPU keeps falling behind, a software decoder starts in the background at the last keyframe, runs in parallel and takes over as soon as it delivers the next frame, without a gap. The switch is written to the OBS log. Software decoding and local files work exactly as before.
 
 For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted.
 
@@ -105,7 +105,7 @@ GPL-2.0-or-later, see [LICENSE](LICENSE). Copyright © 2026 Glowfish GmbH & Co. 
 
 **Die Lösung:** Die Quelle ist die normale OBS-Medienquelle aus OBS 31.0.4 mit allen Funktionen, auch Hardwaredekodierung. Geändert ist nur die Zeitgebung bei Netzwerk-Streams: Jedes Bild und jeder Ton bekommt die Uhrzeit, zu der er fällig ist, und zwar über **eine gemeinsame Taktung** für beide. Springen die Zeitstempel im Stream, beginnt diese Taktung für Bild und Ton gleichzeitig neu. OBS bekommt nie einen Zeitsprung zu sehen, Bild und Ton bleiben zusammen. Die Quelle muss dafür nicht neu gestartet werden.
 
-**Hardwaredekodierung:** Bei Netzwerk-Streams mit Hardwaredekodierung dekodiert die Quelle das Bild in eigenen Abläufen mit einem kleinen Vorrat. Der Ton wartet nie auf die Grafikkarte, Bild und Ton bleiben auf derselben Taktung. Kurze Hänger der Grafikkarte erreichen das Bild nicht, dafür ist die Quelle 0,1 Sekunden später dran.
+**Hardwaredekodierung:** Bei Netzwerk-Streams mit Hardwaredekodierung dekodiert die Quelle das Bild in eigenen Abläufen mit einem kleinen Vorrat. Der Ton wartet nie auf die Grafikkarte, Bild und Ton bleiben auf derselben Taktung. Kurze Hänger der Grafikkarte erreichen das Bild nicht, dafür ist die Quelle 0,1 Sekunden später dran. Kommt die Grafikkarte dauerhaft nicht mit, startet im Hintergrund ein Software-Decoder und übernimmt ohne Lücke.
 
 Liefert schon der Sender Bild und Ton versetzt (manche Kameras tun das), steckt der Versatz im Stream selbst. Den gleicht man einmalig mit dem Audio-Versatz in den erweiterten Audioeigenschaften von OBS aus.
 

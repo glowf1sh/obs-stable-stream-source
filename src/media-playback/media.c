@@ -359,8 +359,10 @@ static bool mp_media_prepare_frames_pipe(mp_media_t *m)
 
 	if (m->has_video && m->next_ns && !m->v.eof) {
 		if (!m->v.frame_ready) {
-			if (!m->pipe_empty)
+			if (!m->pipe_empty) {
 				m->pipe_empty_count++;
+				mp_pipe_note_empty(&m->pipe);
+			}
 			m->pipe_empty = true;
 			m->pipe_min_buffered = 0;
 		} else {
@@ -591,6 +593,18 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 	AVFrame *f = d->frame;
 
 	if (!preload) {
+		/* Stable Stream Source: video that is far too late is never
+		 * shown (it would be out of sync and could look like a
+		 * timestamp jump to libobs). */
+		if (m->pipe.active) {
+			while (d->frame_ready && m->next_pts_ns - d->frame_pts > MP_PIPE_STALE_NS) {
+				d->frame_ready = false;
+				m->pipe_skipped++;
+				mp_media_pipe_next_video(m);
+			}
+			f = d->frame;
+		}
+
 		if (!mp_media_can_play_frame(m, d))
 			return;
 
@@ -720,6 +734,12 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 static void mp_media_calc_next_ns(mp_media_t *m)
 {
 	int64_t min_next_ns = mp_media_get_next_min_pts(m);
+
+	/* Stable Stream Source: with video decoding in own threads, a video
+	 * frame that is already due does not set the pace, the audio does. */
+	if (m->pipe.active && m->has_audio && m->a.frame_ready && m->has_video && m->v.frame_ready &&
+	    m->v.frame_pts <= m->next_pts_ns)
+		min_next_ns = m->a.frame_pts;
 	int64_t delta = min_next_ns - m->next_pts_ns;
 
 	if (m->seek_next_ts) {
@@ -1014,13 +1034,14 @@ static void mp_media_pipe_log(mp_media_t *m)
 
 	if (m->pipe_frames) {
 		blog(LOG_INFO,
-		     "[stable-stream-source] video last %" PRIu64 " s: %" PRIu64 " frames, %" PRIu64
+		     "[stable-stream-source] video last %" PRIu64 " s (%s decoding): %" PRIu64 " frames, %" PRIu64
 		     " late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "
 		     "skipped to keyframe %" PRIu64 " times, decode errors %" PRIu64 ", copy errors %" PRIu64
 		     ", dropped packets %" PRIu64,
-		     (now - m->pipe_stat_since) / 1000000000, m->pipe_frames, m->pipe_skipped, m->pipe_empty_count,
-		     m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips, st.decode_errors,
-		     st.copy_errors, st.dropped_packets);
+		     (now - m->pipe_stat_since) / 1000000000,
+		     (st.software || !m->v.hw) ? "software" : mp_media_hw_name(m), m->pipe_frames, m->pipe_skipped,
+		     m->pipe_empty_count, m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips,
+		     st.decode_errors, st.copy_errors, st.dropped_packets);
 	}
 
 	m->pipe_stat_since = now;
