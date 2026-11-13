@@ -35,7 +35,7 @@ OBS never sees a timestamp jump, so its own re-anchoring of the audio is never t
 
 ## Features and settings
 
-Everything the Media Source can do, with the same settings: local files and network URLs, input format, network buffering, reconnect delay, **hardware decoding**, restart on activate, close when inactive, speed, YUV color range, linear alpha, FFmpeg options, looping and media controls.
+Everything the Media Source can do, with the same settings: local files and network URLs, input format, network buffering, reconnect delay, **hardware decoding**, restart on activate, close when inactive, speed, YUV color range, linear alpha, FFmpeg options and looping. Like the Media Source with a network stream, the source has no play/pause controls in OBS, which also keeps the toolbar quiet while the source waits for a stream.
 
 For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted.
 

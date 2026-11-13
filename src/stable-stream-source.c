@@ -65,6 +65,7 @@ struct ffmpeg_source {
 	bool reconnect_thread_valid;
 	os_event_t *reconnect_stop_event;
 	volatile bool reconnecting;
+	volatile bool started_signaled;
 	int reconnect_delay_sec;
 
 	enum obs_media_state state;
@@ -254,10 +255,19 @@ static void dump_source_info(struct ffmpeg_source *s, const char *input, const c
 		s->close_when_inactive ? "yes" : "no", s->full_decode ? "yes" : "no", s->ffmpeg_options);
 }
 
+/* Network streams report "started" only once data arrives, so failed
+ * reconnect attempts do not toggle the media state. */
+static inline void signal_started(struct ffmpeg_source *s)
+{
+	if (!os_atomic_set_bool(&s->started_signaled, true))
+		obs_source_media_started(s->source);
+}
+
 static void get_frame(void *opaque, struct obs_source_frame *f)
 {
 	struct ffmpeg_source *s = opaque;
 	obs_source_output_video(s->source, f);
+	signal_started(s);
 }
 
 static void preload_frame(void *opaque, struct obs_source_frame *f)
@@ -283,6 +293,7 @@ static void get_audio(void *opaque, struct obs_source_audio *a)
 {
 	struct ffmpeg_source *s = opaque;
 	obs_source_output_audio(s->source, a);
+	signal_started(s);
 
 	if (!s->is_local_file && os_atomic_set_bool(&s->reconnecting, false))
 		FF_BLOG(LOG_INFO, "Reconnected.");
@@ -300,7 +311,8 @@ static void media_stopped(void *opaque)
 
 	if (s->state != OBS_MEDIA_STATE_STOPPED) {
 		set_media_state(s, OBS_MEDIA_STATE_ENDED);
-		obs_source_media_ended(s->source);
+		if (s->is_local_file || os_atomic_set_bool(&s->started_signaled, false))
+			obs_source_media_ended(s->source);
 	}
 }
 
@@ -346,7 +358,10 @@ static void ffmpeg_source_start(struct ffmpeg_source *s)
 	else
 		obs_source_output_video(s->source, NULL);
 	set_media_state(s, OBS_MEDIA_STATE_PLAYING);
-	obs_source_media_started(s->source);
+	if (s->is_local_file) {
+		os_atomic_set_bool(&s->started_signaled, true);
+		obs_source_media_started(s->source);
+	}
 }
 
 static void *ffmpeg_source_reconnect(void *data)
@@ -801,8 +816,9 @@ static obs_missing_files_t *ffmpeg_source_missingfiles(void *data)
 struct obs_source_info stable_stream_source_info = {
 	.id = "stable_stream_source",
 	.type = OBS_SOURCE_TYPE_INPUT,
-	.output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO | OBS_SOURCE_DO_NOT_DUPLICATE |
-			OBS_SOURCE_CONTROLLABLE_MEDIA,
+	/* No OBS_SOURCE_CONTROLLABLE_MEDIA: like the built-in media source for
+	 * network streams, OBS shows no media controls for this source. */
+	.output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO | OBS_SOURCE_DO_NOT_DUPLICATE,
 	.get_name = ffmpeg_source_getname,
 	.create = ffmpeg_source_create,
 	.destroy = ffmpeg_source_destroy,
