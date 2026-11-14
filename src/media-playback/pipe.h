@@ -33,8 +33,11 @@ extern "C" {
 struct mp_media;
 
 /* Presentation runs this far behind the arrival of the data, so the video
- * thread can decode ahead and short GPU stalls are absorbed. */
-#define MP_PIPE_DELAY_NS 100000000ULL
+ * thread can decode ahead and short GPU stalls are absorbed. Senders over
+ * bonded cellular links spread large frames over up to ~150 ms (pacing),
+ * 100 ms dropped up to a third of the frames as late (field test
+ * 14.11.2026), with ~250 ms it ran clean. */
+#define MP_PIPE_DELAY_NS 250000000ULL
 
 /* video later than this is dropped, not shown */
 #define MP_PIPE_STALE_NS 500000000LL

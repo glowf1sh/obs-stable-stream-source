@@ -4,7 +4,7 @@ An OBS Studio source for network streams (SRT, RTMP, RIST, UDP, HLS and anything
 
 *Deutsche Kurzfassung weiter unten.*
 
-> **Status:** stable release 0.1.10, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
+> **Status:** stable release 0.1.11, tested on OBS Studio 31.0.4 (Windows). [Download](https://github.com/glowf1sh/obs-stable-stream-source/releases/latest)
 
 ## Why this plugin exists
 
@@ -39,7 +39,7 @@ Everything the Media Source can do, with the same settings: local files and netw
 
 ### Hardware decoding
 
-With hardware decoding, every video frame has to be copied back from the GPU, and the Media Source waits for that in the same thread that also paces the audio. A busy or power-saving GPU then delays the sound as well, which is heard as short dropouts every few seconds. For network streams with hardware decoding, Stable Stream Source decodes and copies the video in separate threads (both overlap) and keeps a small buffer of decoded frames. The audio never waits for the video, audio and video stay on the same clock, and short GPU stalls do not reach the picture. This adds 0.1 s of latency to the source. If the video decoding falls more than 0.2 s behind, it skips ahead to the next keyframe instead of drifting out of sync. If the GPU keeps falling behind, a software decoder starts in the background at the last keyframe, runs in parallel and takes over as soon as it delivers the next frame, without a gap. The switch is written to the OBS log. Software decoding and local files work exactly as before.
+With hardware decoding, every video frame has to be copied back from the GPU, and the Media Source waits for that in the same thread that also paces the audio. A busy or power-saving GPU then delays the sound as well, which is heard as short dropouts every few seconds. For network streams with hardware decoding, Stable Stream Source decodes and copies the video in separate threads (both overlap) and keeps a small buffer of decoded frames. The audio never waits for the video, audio and video stay on the same clock, and short GPU stalls do not reach the picture. This adds 0.25 s of latency to the source, enough for senders that spread large frames over bonded cellular links. If the video decoding falls more than 0.2 s behind, it skips ahead to the next keyframe instead of drifting out of sync. If the GPU keeps falling behind, a software decoder starts in the background at the last keyframe, runs in parallel and takes over as soon as it delivers the next frame, without a gap. The switch is written to the OBS log. Software decoding and local files work exactly as before.
 
 For SRT, set the latency in the URL (in microseconds, e.g. `latency=1000000` for 1 s) so lost packets can be retransmitted.
 

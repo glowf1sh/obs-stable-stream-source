@@ -44,7 +44,7 @@
 #include <util/platform.h>
 
 #define MP_PIPE_HW_MAX 3
-#define MP_PIPE_OUT_MAX 8
+#define MP_PIPE_OUT_MAX 16
 #define MP_PIPE_SW_MAX 8
 
 /* Upper bound for data waiting in front of the media thread (it does not

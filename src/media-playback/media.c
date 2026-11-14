@@ -521,12 +521,16 @@ static inline uint64_t mp_media_delay_ns(mp_media_t *m)
 
 #define MP_CATCH_UP_NS 2000000000ULL
 #define MP_PROGRESS_NS 200000000ULL
+#define MP_LATE_SMALL_NS 50000000ULL
+#define MP_LATE_SMALL_WAIT_NS 80000000ULL
+#define MP_LATE_SMALL_RESET_NS 500000000ULL
 
 static void mp_media_check_late(mp_media_t *m)
 {
 	m->dropping = false;
 	if (m->is_local_file || m->full_decode || !m->next_ns) {
 		m->late_since = 0;
+		m->late_small_since = 0;
 		return;
 	}
 
@@ -538,8 +542,30 @@ static void mp_media_check_late(mp_media_t *m)
 			     "[stable-stream-source] caught up after %" PRIu64 " ms, dropped %" PRIu64 " late frames",
 			     (now - m->late_since) / 1000000, m->dropped_frames);
 		m->late_since = 0;
+
+		/* Buffered data is handed over without waiting, so lateness
+		 * only lasts if the data itself arrives late. Below MP_LATE_NS
+		 * nothing is dropped, and every frame would be handed over
+		 * late for as long as that lasts, so the clock is moved. Data
+		 * arrives in bursts, single frames in time do not count. */
+		if (late > MP_LATE_SMALL_NS) {
+			if (!m->late_small_since || now - m->late_small_last > MP_LATE_SMALL_RESET_NS) {
+				m->late_small_since = now;
+				m->late_small_count = 0;
+			}
+			m->late_small_last = now;
+			m->late_small_count++;
+			if (now - m->late_small_since >= MP_LATE_SMALL_WAIT_NS && m->late_small_count >= 4) {
+				blog(LOG_INFO,
+				     "[stable-stream-source] data keeps arriving %" PRIu64 " ms late, moving the clock",
+				     late / 1000000);
+				m->next_ns = now + mp_media_delay_ns(m);
+				m->late_small_since = 0;
+			}
+		}
 		return;
 	}
+	m->late_small_since = 0;
 
 	if (!m->late_since) {
 		m->late_since = now;
@@ -1056,6 +1082,18 @@ static void mp_media_pipe_start(mp_media_t *m)
 /* one line per minute while the stream runs, for diagnosis */
 #define MP_PIPE_STAT_NS 60000000000ULL
 
+/* OBS drops a log line after 30 repetitions with the same format pointer
+ * and a similar character sum (too_many_repeated_entries in obs-app.cpp), so
+ * in calm streams the minute line vanished. Two different formats in turn
+ * (the second one ends with a space) keep every line. */
+#define MP_PIPE_STAT_FMT                                                                                          \
+	"[stable-stream-source] video last %" PRIu64 " s (%s decoding): %" PRIu64 " frames, %" PRIu64             \
+	" late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "                    \
+	"skipped to keyframe %" PRIu64 " times, latest frame %" PRId64 " ms late, video arrives up to %" PRId64 \
+	" ms after the audio, audio waited for late video %" PRIu64 " times (up to %" PRIu64                     \
+	" ms), decode errors %" PRIu64 ", copy errors %" PRIu64 ", dropped packets %" PRIu64
+static const char mp_pipe_stat_fmt[2][sizeof(MP_PIPE_STAT_FMT " ")] = {MP_PIPE_STAT_FMT, MP_PIPE_STAT_FMT " "};
+
 static void mp_media_pipe_log(mp_media_t *m)
 {
 	uint64_t now = os_gettime_ns();
@@ -1066,14 +1104,8 @@ static void mp_media_pipe_log(mp_media_t *m)
 	mp_pipe_get_stats(&m->pipe, &st);
 
 	if (m->pipe_frames) {
-		blog(LOG_INFO,
-		     "[stable-stream-source] video last %" PRIu64 " s (%s decoding): %" PRIu64 " frames, %" PRIu64
-		     " late frames skipped, buffer ran empty %" PRIu64 " times, lowest buffer %zu frames, "
-		     "skipped to keyframe %" PRIu64 " times, latest frame %" PRId64
-		     " ms late, video arrives up to %" PRId64
-		     " ms after the audio, audio waited for late video %" PRIu64 " times (up to %" PRIu64
-		     " ms), decode errors %" PRIu64 ", copy errors %" PRIu64 ", dropped packets %" PRIu64,
-		     (now - m->pipe_stat_since) / 1000000000,
+		m->pipe_stat_alt = !m->pipe_stat_alt;
+		blog(LOG_INFO, mp_pipe_stat_fmt[m->pipe_stat_alt ? 1 : 0], (now - m->pipe_stat_since) / 1000000000,
 		     (st.software || !m->v.hw) ? "software" : mp_media_hw_name(m), m->pipe_frames, m->pipe_skipped,
 		     m->pipe_empty_count, m->pipe_min_buffered == SIZE_MAX ? (size_t)0 : m->pipe_min_buffered, st.skips,
 		     m->pipe_max_late / 1000000, st.video_after_audio / 1000000, m->pipe_waits,
