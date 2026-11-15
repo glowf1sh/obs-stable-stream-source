@@ -130,6 +130,7 @@ struct mp_pipe {
 	int64_t skew_a_min;
 	int64_t skew_v_max;
 	bool skew_a_set;
+	uint64_t catch_up_until; /* skips until then come from catching up, not the GPU */
 	bool skew_v_set;
 	uint64_t fb_start_ns;
 	uint64_t trouble_since;
@@ -162,6 +163,7 @@ extern bool mp_pipe_pop_video(struct mp_pipe *p, struct mp_pipe_frame *out);
 extern void mp_pipe_note_empty(struct mp_pipe *p);
 extern void mp_pipe_set_clock(struct mp_pipe *p, int64_t clock_pts);
 extern bool mp_pipe_peek_video_pts(struct mp_pipe *p, int64_t *pts);
+extern void mp_pipe_note_catch_up(struct mp_pipe *p);
 extern size_t mp_pipe_video_buffered(struct mp_pipe *p);
 extern void mp_pipe_wait(struct mp_pipe *p, uint32_t ms);
 extern bool mp_pipe_read_done(struct mp_pipe *p, int *ret);

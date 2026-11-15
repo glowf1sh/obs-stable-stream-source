@@ -105,6 +105,8 @@ struct mp_media {
 	uint64_t pipe_skipped;
 	int64_t pipe_max_late;
 	uint64_t pipe_wait_since;
+	bool pipe_video_seen; /* a video frame was handed over since the clock started */
+	uint64_t late_logged_ns;
 	uint64_t pipe_waits;
 	uint64_t pipe_wait_max;
 	uint64_t pipe_empty_count;

@@ -354,6 +354,12 @@ static void note_trouble(struct mp_pipe *p, int points)
 {
 	if (p->fb != MP_PIPE_FB_NONE || !p->sw_valid || p->hw_unused)
 		return;
+	/* Outdoor test 15.11.2026 05:36: after the clock was moved for late
+	 * network data, the waiting video was behind the clock and skipped to
+	 * a keyframe - that is no slow GPU (nvdec at 5 %), but it started the
+	 * software fallback. */
+	if (p->catch_up_until && os_gettime_ns() < p->catch_up_until)
+		return;
 
 	uint64_t now = os_gettime_ns();
 	if (!p->trouble_since || now - p->trouble_since > MP_PIPE_FB_WINDOW_NS) {
@@ -905,6 +911,13 @@ void mp_pipe_set_clock(struct mp_pipe *p, int64_t clock_pts)
 	p->clock_pts = clock_pts;
 	/* a standing picture may allow the switch now */
 	try_switch(p);
+	pthread_mutex_unlock(&p->mutex);
+}
+
+void mp_pipe_note_catch_up(struct mp_pipe *p)
+{
+	pthread_mutex_lock(&p->mutex);
+	p->catch_up_until = os_gettime_ns() + 5000000000ULL;
 	pthread_mutex_unlock(&p->mutex);
 }
 

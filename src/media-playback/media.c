@@ -326,6 +326,15 @@ static bool mp_media_pipe_ready(mp_media_t *m)
  * decoder never holds the audio back: then data is waiting in the pipe. */
 #define MP_PIPE_ARRIVAL_WAIT_NS 2000000000ULL
 
+/* Stable Stream Source (Outdoor test 15.11.2026): the audio only waits right
+ * after a start or reconnect, until the first video frame of the new session
+ * has come. While running, missing video is usually missing for good (the
+ * relay drops video up to the next keyframe after a loss). Waiting held the
+ * audio back, it reached OBS late and OBS raised its audio buffering for
+ * good, the sound lagged behind the picture. While running the picture
+ * stands still instead and the audio goes on. */
+#define MP_PIPE_ARRIVAL_WAIT_RUN_NS 0ULL
+
 static bool mp_media_pipe_wait_video(mp_media_t *m)
 {
 	bool wait = m->has_video && m->has_audio && m->next_ns && !m->v.frame_ready && !m->v.eof && m->a.frame_ready &&
@@ -349,7 +358,8 @@ static bool mp_media_pipe_wait_video(mp_media_t *m)
 	uint64_t now = os_gettime_ns();
 	if (!m->pipe_wait_since)
 		m->pipe_wait_since = now;
-	if (now - m->pipe_wait_since < MP_PIPE_ARRIVAL_WAIT_NS)
+	uint64_t limit = m->pipe_video_seen ? MP_PIPE_ARRIVAL_WAIT_RUN_NS : MP_PIPE_ARRIVAL_WAIT_NS;
+	if (now - m->pipe_wait_since < limit)
 		return true;
 	return false;
 }
@@ -506,28 +516,20 @@ static inline int64_t mp_media_get_base_pts(mp_media_t *m)
  * Audio and video stay on the same clock and libobs never sees a jump.
  * Local files keep the original timestamps.
  *
- * Frames are never handed over late. If the thread falls behind its clock
- * (the stream stalled and the rest arrives in a burst), late audio and
- * video are dropped together until the clock is reached again, which also
- * brings the source back to live. If the data itself keeps arriving late
- * and catching up makes no progress within MP_PROGRESS_NS (at most
- * MP_CATCH_UP_NS), the clock is moved once for both.
- * Stamping late frames with the current time instead lets libobs pack the
- * audio back to back while the video jumps ahead, so the sound lags.
+ * Frames are never handed over late and nothing is dropped. If the data
+ * comes late, the clock is moved (see mp_media_check_late), everything that
+ * arrives is played. Stamping late frames with the current time instead lets
+ * libobs pack the audio back to back while the video jumps ahead, so the
+ * sound lags.
  */
-#define MP_LATE_NS 250000000ULL
+/* handed over this late at most, OBS buffers a little anyway */
+#define MP_LATE_OK_NS 50000000ULL
 
 /* With video decoding in own threads, presentation runs behind the data. */
 static inline uint64_t mp_media_delay_ns(mp_media_t *m)
 {
 	return m->pipe.active ? MP_PIPE_DELAY_NS : 0;
 }
-
-#define MP_CATCH_UP_NS 2000000000ULL
-#define MP_PROGRESS_NS 200000000ULL
-#define MP_LATE_SMALL_NS 50000000ULL
-#define MP_LATE_SMALL_WAIT_NS 80000000ULL
-#define MP_LATE_SMALL_RESET_NS 500000000ULL
 
 static void mp_media_check_late(mp_media_t *m)
 {
@@ -538,64 +540,28 @@ static void mp_media_check_late(mp_media_t *m)
 		return;
 	}
 
+	/* Stable Stream Source (Outdoor test 15.11.2026): audio handed to OBS
+	 * with a timestamp in the past makes libobs raise its audio buffering
+	 * for good ("adding 170 milliseconds of audio buffering" at 04:10:55),
+	 * from then on all sound lags behind the picture until OBS restarts.
+	 * Dropping late audio and video to catch up loses 1-2 s of sound.
+	 * Both are wrong: if the data comes late, the clock is moved to now,
+	 * nothing is dropped, audio and video stay in sync, and the pause is
+	 * the time the data was missing. Everything is delivered. */
 	uint64_t now = os_gettime_ns();
 	uint64_t late = now > m->next_ns ? now - m->next_ns : 0;
-	if (late <= MP_LATE_NS) {
-		if (m->late_since)
-			blog(LOG_INFO,
-			     "[stable-stream-source] caught up after %" PRIu64 " ms, dropped %" PRIu64 " late frames",
-			     (now - m->late_since) / 1000000, m->dropped_frames);
-		m->late_since = 0;
-
-		/* Buffered data is handed over without waiting, so lateness
-		 * only lasts if the data itself arrives late. Below MP_LATE_NS
-		 * nothing is dropped, and every frame would be handed over
-		 * late for as long as that lasts, so the clock is moved. Data
-		 * arrives in bursts, single frames in time do not count. */
-		if (late > MP_LATE_SMALL_NS) {
-			if (!m->late_small_since || now - m->late_small_last > MP_LATE_SMALL_RESET_NS) {
-				m->late_small_since = now;
-				m->late_small_count = 0;
-			}
-			m->late_small_last = now;
-			m->late_small_count++;
-			if (now - m->late_small_since >= MP_LATE_SMALL_WAIT_NS && m->late_small_count >= 4) {
-				blog(LOG_INFO,
-				     "[stable-stream-source] data keeps arriving %" PRIu64 " ms late, moving the clock",
-				     late / 1000000);
-				m->next_ns = now + mp_media_delay_ns(m);
-				m->late_small_since = 0;
-			}
-		}
+	if (late <= MP_LATE_OK_NS)
 		return;
-	}
-	m->late_small_since = 0;
 
-	if (!m->late_since) {
-		m->late_since = now;
-		m->late_start_ns = late;
-		m->dropped_frames = 0;
-		blog(LOG_INFO, "[stable-stream-source] %" PRIu64 " ms behind, dropping late frames", late / 1000000);
+	if (now - m->late_logged_ns >= 1000000000ULL) {
+		blog(LOG_INFO, "[stable-stream-source] data arrives %" PRIu64 " ms late, moving the clock",
+		     late / 1000000);
+		m->late_logged_ns = now;
 	}
-
-	/* Dropping only helps while buffered data is waiting: then the clock
-	 * gains on real time quickly. If the data itself arrives late, nothing
-	 * can be caught up, so the clock is moved at once instead of dropping
-	 * everything that arrives in the meantime. */
-	uint64_t elapsed = now - m->late_since;
-	bool no_progress = elapsed >= MP_PROGRESS_NS && late * 4 > m->late_start_ns * 3;
-	if (!no_progress && elapsed < MP_CATCH_UP_NS) {
-		m->dropping = true;
-		m->dropped_frames++;
-		return;
-	}
-
-	blog(LOG_INFO,
-	     "[stable-stream-source] data arrives late, moving the clock by %" PRIu64 " ms after dropping %" PRIu64
-	     " frames",
-	     late / 1000000, m->dropped_frames);
+	/* the buffer ran empty, it is refilled once */
 	m->next_ns = now + mp_media_delay_ns(m);
-	m->late_since = 0;
+	if (m->pipe.active)
+		mp_pipe_note_catch_up(&m->pipe);
 }
 
 static inline uint64_t mp_media_frame_ts(mp_media_t *m, int64_t frame_pts)
@@ -791,6 +757,7 @@ void mp_media_next_video(mp_media_t *m, bool preload)
 		}
 	} else {
 		m->v_cb(m->opaque, frame);
+		m->pipe_video_seen = true;
 	}
 }
 
@@ -915,8 +882,10 @@ static inline bool mp_media_sleep(mp_media_t *m)
 {
 	bool timeout = false;
 
-	if (!m->next_ns)
+	if (!m->next_ns) {
 		m->next_ns = os_gettime_ns() + mp_media_delay_ns(m);
+		m->pipe_video_seen = false;
+	}
 
 	{
 		const uint64_t t = os_gettime_ns();
