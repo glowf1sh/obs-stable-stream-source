@@ -130,6 +130,11 @@ struct mp_pipe {
 	int64_t skew_a_min;
 	int64_t skew_v_max;
 	bool skew_a_set;
+	int64_t newest_a_pts; /* timestamp of the latest audio packet, ns */
+	bool newest_a_set;
+	uint64_t jump_until_ns; /* skips until then are the backlog being dropped */
+	int64_t newest_key_pts; /* timestamp of the latest video keyframe, ns */
+	bool newest_key_set;
 	bool skew_v_set;
 	uint64_t fb_start_ns;
 	uint64_t trouble_since;
@@ -162,6 +167,9 @@ extern bool mp_pipe_pop_video(struct mp_pipe *p, struct mp_pipe_frame *out);
 extern void mp_pipe_note_empty(struct mp_pipe *p);
 extern void mp_pipe_set_clock(struct mp_pipe *p, int64_t clock_pts);
 extern bool mp_pipe_peek_video_pts(struct mp_pipe *p, int64_t *pts);
+extern bool mp_pipe_newest_audio_pts(struct mp_pipe *p, int64_t *pts);
+extern void mp_pipe_note_jump(struct mp_pipe *p);
+extern bool mp_pipe_newest_key_pts(struct mp_pipe *p, int64_t *pts);
 extern size_t mp_pipe_video_buffered(struct mp_pipe *p);
 extern void mp_pipe_wait(struct mp_pipe *p, uint32_t ms);
 extern bool mp_pipe_read_done(struct mp_pipe *p, int *ret);
