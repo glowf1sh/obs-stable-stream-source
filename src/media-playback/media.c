@@ -333,7 +333,11 @@ static bool mp_media_pipe_wait_video(mp_media_t *m)
 		    mp_pipe_video_starved(&m->pipe);
 	if (!wait) {
 		if (m->pipe_wait_since) {
+			/* the audio waits at most MP_PIPE_ARRIVAL_WAIT_NS, the
+			 * condition may last longer (sender away) */
 			uint64_t waited = os_gettime_ns() - m->pipe_wait_since;
+			if (waited > MP_PIPE_ARRIVAL_WAIT_NS)
+				waited = MP_PIPE_ARRIVAL_WAIT_NS;
 			m->pipe_waits++;
 			if (waited > m->pipe_wait_max)
 				m->pipe_wait_max = waited;
