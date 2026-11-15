@@ -529,61 +529,6 @@ static inline uint64_t mp_media_delay_ns(mp_media_t *m)
 #define MP_LATE_SMALL_WAIT_NS 80000000ULL
 #define MP_LATE_SMALL_RESET_NS 500000000ULL
 
-/* Stable Stream Source: a jam in the cellular network delivers the held back
- * data in a burst afterwards. The source then plays it in real time and stays
- * that far behind live for good (field test 14.11.2026: several seconds).
- * If the latest audio that has arrived is more than MP_BEHIND_LIVE_NS ahead of
- * what is played for MP_BEHIND_LIVE_WAIT_NS, the backlog is dropped like late
- * data: the clock is set back by it, audio and video are dropped together
- * until it is reached, video skips to a keyframe. A short backlog is played. */
-#define MP_BEHIND_LIVE_NS 1500000000LL
-#define MP_BEHIND_LIVE_WAIT_NS 1000000000ULL
-/* after the drop, play from MP_BEHIND_LIVE_KEEP_NS after the keyframe on */
-#define MP_BEHIND_LIVE_KEEP_NS 30000000LL
-#define MP_BEHIND_LIVE_KEY_NS 500000000LL
-
-static void mp_media_check_behind_live(mp_media_t *m, uint64_t now)
-{
-	int64_t newest;
-	if (!m->pipe.active || !m->has_audio || m->late_since || !mp_pipe_newest_audio_pts(&m->pipe, &newest)) {
-		m->behind_live_since = 0;
-		return;
-	}
-
-	/* larger differences are timestamp jumps of the stream */
-	int64_t behind = newest - m->next_pts_ns - (int64_t)mp_media_delay_ns(m);
-	if (behind <= MP_BEHIND_LIVE_NS || behind > 30000000000LL) {
-		m->behind_live_since = 0;
-		return;
-	}
-	if (!m->behind_live_since) {
-		m->behind_live_since = now;
-		return;
-	}
-	if (now - m->behind_live_since < MP_BEHIND_LIVE_WAIT_NS)
-		return;
-
-	/* Jump onto a keyframe that has just arrived: video resumes there
-	 * without a second skip, and the source is live afterwards. The next
-	 * one comes within a keyframe interval. */
-	int64_t key;
-	/* a full buffer must have arrived behind the keyframe */
-	int64_t delay = (int64_t)mp_media_delay_ns(m) + MP_BEHIND_LIVE_KEEP_NS + (int64_t)MP_LATE_SMALL_NS;
-	if (!mp_pipe_newest_key_pts(&m->pipe, &key) || newest - key < delay ||
-	    newest - key > delay + MP_BEHIND_LIVE_KEY_NS || key - m->next_pts_ns < MP_BEHIND_LIVE_NS / 2)
-		return;
-	/* dropping stops MP_LATE_SMALL_NS short of the shift */
-	int64_t shift = key - m->next_pts_ns + MP_BEHIND_LIVE_KEEP_NS + (int64_t)MP_LATE_SMALL_NS;
-
-	blog(LOG_INFO, "[stable-stream-source] %" PRId64 " ms behind live, dropping the backlog",
-	     (newest - m->next_pts_ns - (int64_t)mp_media_delay_ns(m)) / 1000000);
-	mp_pipe_note_jump(&m->pipe);
-	m->backlog_drop = true;
-	m->backlog_floor_ns = m->next_ns > m->audio_end_ns ? m->next_ns : m->audio_end_ns;
-	m->next_ns -= (uint64_t)shift;
-	m->behind_live_since = 0;
-}
-
 static void mp_media_check_late(mp_media_t *m)
 {
 	m->dropping = false;
@@ -594,15 +539,8 @@ static void mp_media_check_late(mp_media_t *m)
 	}
 
 	uint64_t now = os_gettime_ns();
-	mp_media_check_behind_live(m, now);
 	uint64_t late = now > m->next_ns ? now - m->next_ns : 0;
-	if (late <= (m->backlog_drop ? MP_LATE_SMALL_NS : MP_LATE_NS)) {
-		/* Audio and video before the drop went out stamped up to the
-		 * old clock, which ran ahead by the buffer. Continue after it,
-		 * otherwise the sound overlaps. */
-		if (m->backlog_drop && m->next_ns < m->backlog_floor_ns)
-			m->next_ns = m->backlog_floor_ns;
-		m->backlog_drop = false;
+	if (late <= MP_LATE_NS) {
 		if (m->late_since)
 			blog(LOG_INFO,
 			     "[stable-stream-source] caught up after %" PRIu64 " ms, dropped %" PRIu64 " late frames",
@@ -658,7 +596,6 @@ static void mp_media_check_late(mp_media_t *m)
 	     late / 1000000, m->dropped_frames);
 	m->next_ns = now + mp_media_delay_ns(m);
 	m->late_since = 0;
-	m->backlog_drop = false;
 }
 
 static inline uint64_t mp_media_frame_ts(mp_media_t *m, int64_t frame_pts)
@@ -705,8 +642,6 @@ void mp_media_next_audio(mp_media_t *m)
 		return;
 
 	m->a_cb(m->opaque, &audio);
-	if (audio.samples_per_sec)
-		m->audio_end_ns = audio.timestamp + (uint64_t)audio.frames * 1000000000ULL / audio.samples_per_sec;
 }
 
 void mp_media_next_video(mp_media_t *m, bool preload)

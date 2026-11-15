@@ -89,10 +89,6 @@ struct mp_media {
 	uint64_t late_small_since;
 	uint64_t late_small_last;
 	uint32_t late_small_count;
-	uint64_t behind_live_since;
-	bool backlog_drop;         /* dropping the backlog: catch up fully */
-	uint64_t backlog_floor_ns; /* frames before the drop are stamped up to here */
-	uint64_t audio_end_ns;     /* end of the last audio handed over */
 	bool pipe_stat_alt;
 	int64_t start_ts;
 	int64_t base_ts;

@@ -232,16 +232,6 @@ static void *read_thread(void *data)
 			mp_media_free_packet(m, pkt);
 			break;
 		}
-		if (ts != AV_NOPTS_VALUE && video && (pkt->flags & AV_PKT_FLAG_KEY)) {
-			p->newest_key_pts = av_rescale_q(ts, m->fmt->streams[pkt->stream_index]->time_base,
-							 (AVRational){1, 1000000000});
-			p->newest_key_set = true;
-		}
-		if (ts != AV_NOPTS_VALUE && audio) {
-			p->newest_a_pts = av_rescale_q(ts, m->fmt->streams[pkt->stream_index]->time_base,
-						       (AVRational){1, 1000000000});
-			p->newest_a_set = true;
-		}
 		if (ts != AV_NOPTS_VALUE) {
 			if (audio && (!p->skew_a_set || skew < p->skew_a_min)) {
 				p->skew_a_min = skew;
@@ -363,9 +353,6 @@ static void try_switch(struct mp_pipe *p)
 static void note_trouble(struct mp_pipe *p, int points)
 {
 	if (p->fb != MP_PIPE_FB_NONE || !p->sw_valid || p->hw_unused)
-		return;
-	/* dropping the backlog skips on purpose, that is not a slow GPU */
-	if (p->jump_until_ns && os_gettime_ns() < p->jump_until_ns)
 		return;
 
 	uint64_t now = os_gettime_ns();
@@ -919,31 +906,6 @@ void mp_pipe_set_clock(struct mp_pipe *p, int64_t clock_pts)
 	/* a standing picture may allow the switch now */
 	try_switch(p);
 	pthread_mutex_unlock(&p->mutex);
-}
-
-bool mp_pipe_newest_key_pts(struct mp_pipe *p, int64_t *pts)
-{
-	pthread_mutex_lock(&p->mutex);
-	bool got = p->newest_key_set;
-	*pts = p->newest_key_pts;
-	pthread_mutex_unlock(&p->mutex);
-	return got;
-}
-
-void mp_pipe_note_jump(struct mp_pipe *p)
-{
-	pthread_mutex_lock(&p->mutex);
-	p->jump_until_ns = os_gettime_ns() + 5000000000ULL;
-	pthread_mutex_unlock(&p->mutex);
-}
-
-bool mp_pipe_newest_audio_pts(struct mp_pipe *p, int64_t *pts)
-{
-	pthread_mutex_lock(&p->mutex);
-	bool got = p->newest_a_set;
-	*pts = p->newest_a_pts;
-	pthread_mutex_unlock(&p->mutex);
-	return got;
 }
 
 bool mp_pipe_peek_video_pts(struct mp_pipe *p, int64_t *pts)
