@@ -107,6 +107,16 @@ struct mp_media {
 	uint64_t pipe_wait_since;
 	bool pipe_video_seen; /* a video frame was handed over since the clock started */
 	uint64_t late_logged_ns;
+	uint64_t audio_end_ns; /* end of the last audio handed over */
+	uint8_t *silence;      /* samples to fill short gaps */
+	size_t silence_size;
+	float *plc_last; /* last audio handed over, planar float */
+	size_t plc_size;
+	uint32_t plc_frames;
+	int plc_channels;
+	bool plc_fade_in; /* fade in the audio after a filled gap */
+	float *plc_scratch;
+	size_t plc_scratch_size;
 	uint64_t pipe_waits;
 	uint64_t pipe_wait_max;
 	uint64_t pipe_empty_count;

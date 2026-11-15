@@ -581,6 +581,142 @@ static inline bool mp_media_can_play_frame(mp_media_t *m, struct mp_decode *d)
 	return d->frame_ready && (d->frame_pts <= m->next_pts_ns || (d->frame_pts - m->next_pts_ns > MAX_TS_VAR));
 }
 
+/* Stable Stream Source (15.11.2026): libobs closes gaps in the audio of a
+ * source that are shorter than TS_SMOOTHING_THRESHOLD (70 ms) by moving the
+ * following audio forward (obs-source.c, source_output_audio_data). From then
+ * on the sound runs ahead of the picture by the size of the gap, for good.
+ * Such a gap comes from a lost audio packet or from moving the clock. It is
+ * filled with exactly that length, so every sample stays at its own time.
+ * The fill is the sound just before the gap, mirrored (no edge) and faded
+ * out, the audio after it is faded in over MP_PLC_FADE_IN_NS - packet loss
+ * concealment as in telephony. Formats other than float get silence. Longer
+ * gaps libobs keeps as they are. */
+#define MP_AUDIO_FILL_NS 75000000ULL
+#define MP_PLC_FADE_IN_NS 5000000ULL
+
+static inline bool mp_audio_is_float(enum audio_format f)
+{
+	return f == AUDIO_FORMAT_FLOAT || f == AUDIO_FORMAT_FLOAT_PLANAR;
+}
+
+static inline float mp_audio_sample(const struct obs_source_audio *a, int ch, int channels, uint32_t i)
+{
+	if (a->format == AUDIO_FORMAT_FLOAT_PLANAR)
+		return ((const float *)a->data[ch])[i];
+	return ((const float *)a->data[0])[(size_t)i * channels + ch];
+}
+
+/* keeps the last audio handed over for the concealment */
+static void mp_media_plc_keep(mp_media_t *m, const struct obs_source_audio *a, int channels)
+{
+	if (!mp_audio_is_float(a->format) || channels <= 0 || !a->frames) {
+		m->plc_frames = 0;
+		return;
+	}
+	size_t need = (size_t)a->frames * channels;
+	if (m->plc_size < need) {
+		bfree(m->plc_last);
+		m->plc_last = bmalloc(need * sizeof(float));
+		m->plc_size = need;
+	}
+	for (int c = 0; c < channels; c++)
+		for (uint32_t i = 0; i < a->frames; i++)
+			m->plc_last[(size_t)c * a->frames + i] = mp_audio_sample(a, c, channels, i);
+	m->plc_frames = a->frames;
+	m->plc_channels = channels;
+}
+
+static void mp_media_fill_gap(mp_media_t *m, const struct obs_source_audio *audio, int channels)
+{
+	if (!m->audio_end_ns || !audio->samples_per_sec || audio->timestamp <= m->audio_end_ns)
+		return;
+	uint64_t gap = audio->timestamp - m->audio_end_ns;
+	if (gap < 1000000ULL || gap >= MP_AUDIO_FILL_NS)
+		return;
+
+	uint32_t frames = (uint32_t)(gap * audio->samples_per_sec / 1000000000ULL);
+	size_t bps = get_audio_bytes_per_channel(audio->format);
+	bool planar = is_audio_planar(audio->format);
+	size_t plane = (size_t)frames * bps * (planar ? 1 : (size_t)channels);
+	size_t size = plane * (planar ? (size_t)channels : 1);
+	if (!frames || !bps || !size || channels <= 0)
+		return;
+	if (m->silence_size < size) {
+		bfree(m->silence);
+		m->silence = bmalloc(size);
+		m->silence_size = size;
+	}
+	bool u8 = audio->format == AUDIO_FORMAT_U8BIT || audio->format == AUDIO_FORMAT_U8BIT_PLANAR;
+	memset(m->silence, u8 ? 0x80 : 0, size);
+
+	bool plc = mp_audio_is_float(audio->format) && m->plc_frames && m->plc_channels == channels;
+	if (plc) {
+		uint32_t n = m->plc_frames;
+		for (int c = 0; c < channels; c++) {
+			const float *last = m->plc_last + (size_t)c * n;
+			for (uint32_t i = 0; i < frames; i++) {
+				/* mirrored from the end: continuous at the edge */
+				uint32_t k = i % (2 * n);
+				float v = k < n ? last[n - 1 - k] : last[k - n];
+				float g = 1.0f - (float)i / (float)frames;
+				if (planar)
+					((float *)(m->silence + (size_t)c * plane))[i] = v * g;
+				else
+					((float *)m->silence)[(size_t)i * channels + c] = v * g;
+			}
+		}
+		m->plc_fade_in = true;
+	}
+
+	struct obs_source_audio s = *audio;
+	for (size_t i = 0; i < MAX_AV_PLANES; i++)
+		s.data[i] = NULL;
+	if (planar) {
+		for (int i = 0; i < channels && i < MAX_AV_PLANES; i++)
+			s.data[i] = m->silence + (plc ? (size_t)i * plane : 0);
+	} else {
+		s.data[0] = m->silence;
+	}
+	s.frames = frames;
+	s.timestamp = m->audio_end_ns;
+	m->a_cb(m->opaque, &s);
+}
+
+/* fades in the audio after a filled gap, on a copy of the samples */
+static void mp_media_plc_fade_in(mp_media_t *m, struct obs_source_audio *a, int channels)
+{
+	m->plc_fade_in = false;
+	if (!mp_audio_is_float(a->format) || channels <= 0 || !a->frames || !a->samples_per_sec)
+		return;
+	size_t need = (size_t)a->frames * channels;
+	if (m->plc_scratch_size < need) {
+		bfree(m->plc_scratch);
+		m->plc_scratch = bmalloc(need * sizeof(float));
+		m->plc_scratch_size = need;
+	}
+	uint32_t fade = (uint32_t)(MP_PLC_FADE_IN_NS * a->samples_per_sec / 1000000000ULL);
+	if (fade > a->frames)
+		fade = a->frames;
+	bool planar = a->format == AUDIO_FORMAT_FLOAT_PLANAR;
+	for (int c = 0; c < channels; c++) {
+		for (uint32_t i = 0; i < a->frames; i++) {
+			float v = mp_audio_sample(a, c, channels, i);
+			if (i < fade)
+				v *= (float)i / (float)fade;
+			if (planar)
+				m->plc_scratch[(size_t)c * a->frames + i] = v;
+			else
+				m->plc_scratch[(size_t)i * channels + c] = v;
+		}
+	}
+	if (planar) {
+		for (int c = 0; c < channels && c < MAX_AV_PLANES; c++)
+			a->data[c] = (const uint8_t *)(m->plc_scratch + (size_t)c * a->frames);
+	} else {
+		a->data[0] = (const uint8_t *)m->plc_scratch;
+	}
+}
+
 void mp_media_next_audio(mp_media_t *m)
 {
 	struct mp_decode *d = &m->a;
@@ -607,7 +743,17 @@ void mp_media_next_audio(mp_media_t *m)
 	if (audio.format == AUDIO_FORMAT_UNKNOWN)
 		return;
 
+	if (!m->is_local_file && !m->full_decode) {
+		mp_media_fill_gap(m, &audio, channels);
+		if (m->plc_fade_in)
+			mp_media_plc_fade_in(m, &audio, channels);
+	}
+
 	m->a_cb(m->opaque, &audio);
+	if (audio.samples_per_sec)
+		m->audio_end_ns = audio.timestamp + (uint64_t)audio.frames * 1000000000ULL / audio.samples_per_sec;
+	if (!m->is_local_file && !m->full_decode)
+		mp_media_plc_keep(m, &audio, channels);
 }
 
 void mp_media_next_video(mp_media_t *m, bool preload)
@@ -885,6 +1031,9 @@ static inline bool mp_media_sleep(mp_media_t *m)
 	if (!m->next_ns) {
 		m->next_ns = os_gettime_ns() + mp_media_delay_ns(m);
 		m->pipe_video_seen = false;
+		m->audio_end_ns = 0;
+		m->plc_frames = 0;
+		m->plc_fade_in = false;
 	}
 
 	{
@@ -1312,6 +1461,9 @@ void mp_media_free(mp_media_t *media)
 	os_sem_destroy(media->sem);
 	sws_freeContext(media->swscale);
 	av_freep(&media->scale_pic[0]);
+	bfree(media->silence);
+	bfree(media->plc_last);
+	bfree(media->plc_scratch);
 	bfree(media->path);
 	bfree(media->format_name);
 	memset(media, 0, sizeof(*media));
