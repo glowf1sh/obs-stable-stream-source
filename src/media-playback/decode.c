@@ -361,6 +361,7 @@ bool mp_decode_next(struct mp_decode *d)
 				deque_pop_front(&d->packets, &d->orig_pkt, sizeof(d->orig_pkt));
 				av_packet_ref(d->pkt, d->orig_pkt);
 				d->packet_pending = true;
+				d->packets_no_frame++;
 			}
 		}
 
@@ -384,6 +385,8 @@ bool mp_decode_next(struct mp_decode *d)
 		}
 
 		d->frame_ready = !!got_frame;
+		if (d->frame_ready)
+			d->packets_no_frame = 0;
 
 		if (d->packet_pending) {
 			if (d->pkt->size) {

@@ -212,11 +212,27 @@ static int mp_media_next_packet(mp_media_t *media)
 	return ret;
 }
 
+/* Stable Stream Source (15.11.2026, obs-studio#14044): with decoding in one
+ * thread the audio waits for a video frame, which keeps it in sync with video
+ * that comes later than the audio in the stream. If the video cannot be
+ * decoded (a damaged GOP), the decoder takes packet after packet without a
+ * frame coming out and the sound stood still until the next good keyframe.
+ * When MP_VIDEO_STUCK_PACKETS packets went in without a frame, a running
+ * network stream lets the audio go on and the picture stands still. Normal
+ * decoder delay is a few packets. Local files are unchanged. */
+#define MP_VIDEO_STUCK_PACKETS 10
+
+static inline bool mp_media_video_stuck(mp_media_t *m)
+{
+	return !m->is_local_file && !m->full_decode && m->next_ns && m->has_audio &&
+	       m->v.packets_no_frame >= MP_VIDEO_STUCK_PACKETS;
+}
+
 static inline bool mp_media_ready_to_start(mp_media_t *m)
 {
 	if (m->has_audio && !m->a.eof && !m->a.frame_ready)
 		return false;
-	if (m->has_video && !m->v.eof && !m->v.frame_ready)
+	if (m->has_video && !m->v.eof && !m->v.frame_ready && !mp_media_video_stuck(m))
 		return false;
 	return true;
 }
@@ -913,6 +929,7 @@ static void mp_media_calc_next_ns(mp_media_t *m)
 
 	/* Stable Stream Source: with video decoding in own threads, a video
 	 * frame that is already due does not set the pace, the audio does. */
+	bool netz = m->pipe.active || (!m->is_local_file && !m->full_decode);
 	if (m->pipe.active && m->has_audio && m->a.frame_ready && m->has_video && m->v.frame_ready &&
 	    m->v.frame_pts <= m->next_pts_ns)
 		min_next_ns = m->a.frame_pts;
@@ -926,11 +943,12 @@ static void mp_media_calc_next_ns(mp_media_t *m)
 		assert(delta >= 0);
 #endif
 		if (delta < 0) {
-			/* Stable Stream Source: with video decoding in own
-			 * threads, a late video frame must not move the clock
-			 * back, the following audio would get a gap. Only
+			/* Stable Stream Source: for network streams a late
+			 * video frame must not move the clock back, the
+			 * following audio would get a gap (one thread: after a
+			 * damaged GOP the sound stood still for ~0.9 s). Only
 			 * timestamp jumps re-anchor it. */
-			if (m->pipe.active && delta > -MAX_TS_VAR)
+			if (netz && delta > -MAX_TS_VAR)
 				min_next_ns = m->next_pts_ns;
 			delta = 0;
 		}

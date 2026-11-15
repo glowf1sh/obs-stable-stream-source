@@ -64,6 +64,7 @@ struct mp_decode {
 	AVPacket *orig_pkt;
 	AVPacket *pkt;
 	bool packet_pending;
+	uint32_t packets_no_frame; /* packets taken since the last frame came out */
 	struct deque packets;
 };
 
