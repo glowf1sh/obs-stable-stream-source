@@ -499,6 +499,17 @@ static void ffmpeg_source_update(void *data, obs_data_t *settings)
 	s->speed_percent = speed_percent;
 	s->is_local_file = is_local_file;
 	s->seekable = obs_data_get_bool(settings, "seekable");
+
+	/* Stable Stream Source (15.11.2026): network streams are paced and
+	 * stamped with the wall-clock time by the media thread. libobs must not
+	 * buffer them again: its buffered async video runs on a clock of its own
+	 * that only moves while frames arrive. A gap in the video (the relay
+	 * holds the picture back to the next keyframe after a loss) stops that
+	 * clock, and from then on the picture is shown that much later than the
+	 * sound (up to 0.5 s, until 30 frames pile up and libobs starts over).
+	 * Unbuffered, libobs shows each frame when it arrives, which is when it
+	 * is due. Local files keep the timestamps of the file and stay buffered. */
+	obs_source_set_async_unbuffered(s->source, !is_local_file && !s->seekable);
 	s->ffmpeg_options = ffmpeg_options ? bstrdup(ffmpeg_options) : NULL;
 	s->is_stinger = is_stinger;
 	s->is_track_matte = is_track_matte;
