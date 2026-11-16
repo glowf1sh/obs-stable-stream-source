@@ -25,6 +25,7 @@
 #include <util/platform.h>
 
 #include <assert.h>
+#include <stdlib.h>
 
 #include "media-playback.h"
 #include "media.h"
@@ -947,8 +948,14 @@ static void mp_media_calc_next_ns(mp_media_t *m)
 			 * video frame must not move the clock back, the
 			 * following audio would get a gap (one thread: after a
 			 * damaged GOP the sound stood still for ~0.9 s). Only
-			 * timestamp jumps re-anchor it. */
-			if (netz && delta > -MAX_TS_VAR)
+			 * timestamp jumps re-anchor it. A jump moves audio and
+			 * video together: while the audio is still close to the
+			 * clock, a video frame far behind it is only stale (a
+			 * damaged stretch of 2 s or more), and moving the clock
+			 * back by that much stopped the sound for as long. */
+			bool audio_near = m->has_audio && m->a.frame_ready &&
+					  llabs(m->a.frame_pts - m->next_pts_ns) < MAX_TS_VAR;
+			if (netz && (delta > -MAX_TS_VAR || audio_near))
 				min_next_ns = m->next_pts_ns;
 			delta = 0;
 		}
