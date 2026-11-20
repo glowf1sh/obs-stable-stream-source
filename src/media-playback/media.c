@@ -607,8 +607,19 @@ static inline bool mp_media_can_play_frame(mp_media_t *m, struct mp_decode *d)
  * The fill is the sound just before the gap, mirrored (no edge) and faded
  * out, the audio after it is faded in over MP_PLC_FADE_IN_NS - packet loss
  * concealment as in telephony. Formats other than float get silence. Longer
- * gaps libobs keeps as they are. */
+ * gaps libobs keeps as they are.
+ *
+ * 0.1.19: the end of the audio is counted the way libobs counts it: every
+ * block that libobs smooths (less than 70 ms off) moves the end on by its own
+ * length, not to its own timestamp. Senders like Moblin (Opus) stamp the
+ * blocks with a jitter of a few ms (20/25.3/24/4 ms steps, no drift in sum).
+ * Measured against the block's own timestamp each step looked like a gap and
+ * was filled (741 fills in 2 min, robotic sound). Now only the real offset
+ * between the timestamps and what libobs plays is filled, once it reaches
+ * MP_AUDIO_FILL_MIN_NS. The sound is never more than that ahead of its time. */
 #define MP_AUDIO_FILL_NS 75000000ULL
+#define MP_AUDIO_FILL_MIN_NS 5000000ULL
+#define MP_AUDIO_SMOOTH_NS 70000000ULL
 #define MP_PLC_FADE_IN_NS 5000000ULL
 
 static inline bool mp_audio_is_float(enum audio_format f)
@@ -648,7 +659,7 @@ static void mp_media_fill_gap(mp_media_t *m, const struct obs_source_audio *audi
 	if (!m->audio_end_ns || !audio->samples_per_sec || audio->timestamp <= m->audio_end_ns)
 		return;
 	uint64_t gap = audio->timestamp - m->audio_end_ns;
-	if (gap < 1000000ULL || gap >= MP_AUDIO_FILL_NS)
+	if (gap < MP_AUDIO_FILL_MIN_NS || gap >= MP_AUDIO_FILL_NS)
 		return;
 
 	uint32_t frames = (uint32_t)(gap * audio->samples_per_sec / 1000000000ULL);
@@ -697,6 +708,23 @@ static void mp_media_fill_gap(mp_media_t *m, const struct obs_source_audio *audi
 	s.frames = frames;
 	s.timestamp = m->audio_end_ns;
 	m->a_cb(m->opaque, &s);
+	m->audio_end_ns += (uint64_t)frames * 1000000000ULL / audio->samples_per_sec;
+}
+
+/* end of the audio as libobs places it (source_output_audio_data): blocks
+ * less than TS_SMOOTHING_THRESHOLD off are put right after the previous one,
+ * others at their own timestamp */
+static void mp_media_audio_end(mp_media_t *m, const struct obs_source_audio *a)
+{
+	if (!a->samples_per_sec)
+		return;
+	uint64_t dur = (uint64_t)a->frames * 1000000000ULL / a->samples_per_sec;
+	uint64_t end = m->audio_end_ns;
+	uint64_t diff = !end ? MP_AUDIO_SMOOTH_NS : (a->timestamp > end ? a->timestamp - end : end - a->timestamp);
+	if (diff < MP_AUDIO_SMOOTH_NS)
+		m->audio_end_ns = end + dur;
+	else
+		m->audio_end_ns = a->timestamp + dur;
 }
 
 /* fades in the audio after a filled gap, on a copy of the samples */
@@ -767,8 +795,7 @@ void mp_media_next_audio(mp_media_t *m)
 	}
 
 	m->a_cb(m->opaque, &audio);
-	if (audio.samples_per_sec)
-		m->audio_end_ns = audio.timestamp + (uint64_t)audio.frames * 1000000000ULL / audio.samples_per_sec;
+	mp_media_audio_end(m, &audio);
 	if (!m->is_local_file && !m->full_decode)
 		mp_media_plc_keep(m, &audio, channels);
 }
